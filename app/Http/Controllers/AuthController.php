@@ -34,7 +34,7 @@ class AuthController extends Controller
                 [
                     'client_id' => $clientId,
                     'client_secret' => $clientSecret,
-                    'scope' => 'https://graph.microsoft.com/user.read https://graph.microsoft.com/mail.read offline_access',
+                    'scope' => 'https://graph.microsoft.com/user.read https://graph.microsoft.com/mail.read offline_access Files.Read Files.ReadWrite profile openid',
                     'code' => $code,
                     'redirect_uri' => $redirectUri,
                     'grant_type' => 'authorization_code',
@@ -44,14 +44,14 @@ class AuthController extends Controller
 
             if ($response->successful()) {
                 $data = $response->json();
-                
+
                 // Get user info from Microsoft Graph
                 $userInfo = $this->getUserInfo($data['access_token']);
-                
+
                 if ($userInfo) {
                     // Create user object and store in session
                     $user = $this->createUserFromMicrosoft($userInfo, $data);
-                    
+
                     return response()->json([
                         'success' => true,
                         'access_token' => $data['access_token'],
@@ -70,7 +70,6 @@ class AuthController extends Controller
                 'success' => false,
                 'error' => $response->json(),
             ], 400);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -125,12 +124,11 @@ class AuthController extends Controller
     }
 
     /**
-     * Fetch unreplied emails for authenticated user
+     * Fetch unreplied emails for authenticated user (with optional date filter)
      */
     public function getUnrepliedEmails(Request $request)
     {
         try {
-            // Get user from session
             $user = User::fromSession();
 
             if (!$user) {
@@ -148,7 +146,6 @@ class AuthController extends Controller
             // Check if token is expired
             $expiresAt = Carbon::parse($user->microsoft_token_expires_at);
             if (Carbon::now()->greaterThan($expiresAt)) {
-                // Refresh the token
                 $newToken = $this->graphService->getValidAccessToken(
                     $user->id,
                     $accessToken,
@@ -166,8 +163,15 @@ class AuthController extends Controller
                 $accessToken = $newToken;
             }
 
-            // Fetch unreplied emails
-            $result = $this->graphService->getUnrepliedEmails($accessToken);
+            $startDate = $request->query('startDate');
+            $endDate   = $request->query('endDate');
+
+            $result = $this->graphService->getUnrepliedEmails(
+                $accessToken,
+                50, // max results
+                $startDate,
+                $endDate
+            );
 
             return response()->json($result);
         } catch (\Exception $e) {
@@ -233,7 +237,7 @@ class AuthController extends Controller
     public function logout()
     {
         User::clearSession();
-        
+
         return response()->json([
             'success' => true,
             'message' => 'Logged out successfully'

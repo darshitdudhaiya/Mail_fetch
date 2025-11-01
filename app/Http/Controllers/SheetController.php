@@ -2,64 +2,65 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
+use App\Services\MicrosoftGraphService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
 
 class SheetController extends Controller
 {
-    /**
-     * Fetch Excel data from OneDrive securely (app-based access)
-     */
+    protected $graphService;
+
+    public function __construct(MicrosoftGraphService $graphService)
+    {
+        $this->graphService = $graphService;
+    }
+
     public function getSheetData(Request $request)
     {
         try {
-            $tenantId = env('MICROSOFT_TENANT_ID');
-            $clientId = env('MICROSOFT_CLIENT_ID');
-            $clientSecret = env('MICROSOFT_CLIENT_SECRET');
-            $fileId = env('MICROSOFT_EXCEL_FILE_ID');
-            $sheetName = env('MICROSOFT_EXCEL_SHEET_NAME', 'Sheet1');
-            $range = env('MICROSOFT_EXCEL_RANGE', 'A1:D10');
-
-            $tokenResponse = Http::asForm()->post("https://login.microsoftonline.com/{$tenantId}/oauth2/v2.0/token", [
-                'client_id' => $clientId,
-                'client_secret' => $clientSecret,
-                'grant_type' => 'client_credentials',
-                'scope' => 'https://graph.microsoft.com/.default',
-            ]);
-
-            if (!$tokenResponse->successful()) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Failed to get access token',
-                    'details' => $tokenResponse->json(),
-                ], 500);
+            $user = User::fromSession();
+            if (!$user) {
+                return response()->json(['success' => false, 'error' => 'User not authenticated'], 401);
             }
 
-            $accessToken = $tokenResponse->json()['access_token'];
+            $accessToken = decrypt($user->microsoft_access_token);
+            $refreshToken = decrypt($user->microsoft_refresh_token);
+            $expiresAt = Carbon::parse($user->microsoft_token_expires_at);
 
-            $graphUrl = "https://graph.microsoft.com/v1.0/me/drive/items/{$fileId}/workbook/worksheets('{$sheetName}')/range(address='{$range}')";
+            if (Carbon::now()->greaterThan($expiresAt)) {
+                $accessToken = $this->graphService->getValidAccessToken($user->id, $accessToken, $refreshToken);
+                if (!$accessToken) {
+                    return response()->json(['success' => false, 'error' => 'Token expired, reauth required'], 401);
+                }
+            }
 
-            $sheetResponse = Http::withToken($accessToken)->get($graphUrl);
+            $filePath = '/Documents/DocSync.xlsx'; // adjust this based on your actual OneDrive folder
+            $sheetName = 'Sheet1';
 
-            if (!$sheetResponse->successful()) {
+            // ✅ Fetch used range (dynamic data)
+            $graphUrl = "https://graph.microsoft.com/v1.0/me/drive/root:{$filePath}:/workbook/worksheets('{$sheetName}')/usedRange";
+
+            $response = Http::withToken($accessToken)->get($graphUrl);
+
+            if (!$response->successful()) {
                 return response()->json([
                     'success' => false,
                     'error' => 'Failed to fetch sheet data',
-                    'details' => $sheetResponse->json(),
+                    'details' => $response->json(),
                 ], 500);
             }
 
-            $data = $sheetResponse->json();
-
             return response()->json([
                 'success' => true,
-                'values' => $data['values'] ?? [],
+                'values' => $response->json()['values'] ?? [],
             ]);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage(),
-            ], 500);
+            Log::error('Sheet fetch error', ['message' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
 }

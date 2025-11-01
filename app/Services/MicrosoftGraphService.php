@@ -80,19 +80,27 @@ class MicrosoftGraphService
         return null;
     }
 
-    /**
-     * Fetch unreplied emails from Outlook
-     */
-    public function getUnrepliedEmails($accessToken, $maxResults = 50)
+    public function getUnrepliedEmails($accessToken, $maxResults = 50, $startDate = null, $endDate = null)
     {
         try {
-            // Only fetch messages from Inbox
+            $filterParts = ["isDraft eq false"];
+
+            // Apply date filters if provided
+            if ($startDate) {
+                $filterParts[] = "receivedDateTime ge " . $this->formatGraphDate($startDate);
+            }
+            if ($endDate) {
+                $filterParts[] = "receivedDateTime le " . $this->formatGraphDate($endDate);
+            }
+
+            $filter = implode(' and ', $filterParts);
+
             $response = Http::withToken($accessToken)
                 ->get('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages', [
                     '$top' => $maxResults,
                     '$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,webLink',
                     '$orderby' => 'receivedDateTime DESC',
-                    '$filter' => "isDraft eq false"
+                    '$filter' => $filter,
                 ]);
 
             if ($response->successful()) {
@@ -101,7 +109,7 @@ class MicrosoftGraphService
                 // Filter unreplied emails
                 $unrepliedEmails = $this->filterUnrepliedEmails($messages, $accessToken);
 
-                // Include the Outlook web link (already provided by Graph in webLink)
+                // Add Outlook web links
                 $unrepliedEmails = array_map(function ($email) {
                     if (!isset($email['webLink'])) {
                         $email['webLink'] = "https://outlook.live.com/mail/0/inbox/id/" . $email['id'];
@@ -112,23 +120,33 @@ class MicrosoftGraphService
                 return [
                     'success' => true,
                     'emails' => $unrepliedEmails,
-                    'count' => count($unrepliedEmails)
+                    'count' => count($unrepliedEmails),
                 ];
             }
 
             return [
                 'success' => false,
                 'error' => $response->json(),
-                'status' => $response->status()
+                'status' => $response->status(),
             ];
         } catch (\Exception $e) {
             Log::error('Email fetch exception', ['error' => $e->getMessage()]);
             return [
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ];
         }
     }
+
+    /**
+     * Format date for Microsoft Graph filter
+     */
+    private function formatGraphDate($date)
+    {
+        // Convert to ISO 8601 UTC format (e.g., 2025-11-01T00:00:00Z)
+        return Carbon::parse($date)->toIso8601ZuluString();
+    }
+
 
 
     /**
