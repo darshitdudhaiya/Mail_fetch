@@ -7,6 +7,7 @@ use App\Services\MicrosoftGraphService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AuthController extends Controller
@@ -26,25 +27,27 @@ class AuthController extends Controller
         $clientId = env('MICROSOFT_CLIENT_ID');
         $clientSecret = env('MICROSOFT_CLIENT_SECRET');
         $redirectUri = env('MICROSOFT_REDIRECT_URI');
+        $pesmissons = env('MICROSOFT_PERMISSIONS');
+
+        $microsoftLoginBaseApi = "https://login.microsoftonline.com";
 
         try {
             // Exchange authorization code for access token
             $response = Http::asForm()->post(
-                "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+                "{$microsoftLoginBaseApi}/consumers/oauth2/v2.0/token",
                 [
                     'client_id' => $clientId,
                     'client_secret' => $clientSecret,
-                    'scope' => 'https://graph.microsoft.com/user.read https://graph.microsoft.com/mail.read offline_access Files.Read Files.ReadWrite profile openid',
+                    'scope' => $pesmissons,
                     'code' => $code,
                     'redirect_uri' => $redirectUri,
                     'grant_type' => 'authorization_code',
                     'code_verifier' => $codeVerifier,
                 ]
             );
-
+            
             if ($response->successful()) {
                 $data = $response->json();
-
                 // Get user info from Microsoft Graph
                 $userInfo = $this->getUserInfo($data['access_token']);
 
@@ -83,9 +86,13 @@ class AuthController extends Controller
      */
     private function getUserInfo($accessToken)
     {
+        $microsoftBaseApi = env('MICROSOFT_BASE_API');
         try {
             $response = Http::withToken($accessToken)
-                ->get('https://graph.microsoft.com/v1.0/me');
+                ->get("{$microsoftBaseApi}");
+
+                Log::info('User Info response', ['response' => $response->json()]);
+                Log::info('status', ['status' => $response->status()]);
 
             if ($response->successful()) {
                 return $response->json();

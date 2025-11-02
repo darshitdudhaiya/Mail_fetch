@@ -13,12 +13,15 @@ class MicrosoftGraphService
     private $clientId;
     private $clientSecret;
     private $redirectUri;
+    private $microsoftBaseApi;
 
     public function __construct()
     {
         $this->clientId = env('MICROSOFT_CLIENT_ID');
         $this->clientSecret = env('MICROSOFT_CLIENT_SECRET');
         $this->redirectUri = env('MICROSOFT_REDIRECT_URI');
+        $this->microsoftBaseApi = env('MICROSOFT_BASE_API');
+
     }
 
     /**
@@ -96,7 +99,7 @@ class MicrosoftGraphService
             $filter = implode(' and ', $filterParts);
 
             $response = Http::withToken($accessToken)
-                ->get('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages', [
+                ->get("{$this->microsoftBaseApi}/mailFolders/inbox/messages", [
                     '$top' => $maxResults,
                     '$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,webLink',
                     '$orderby' => 'receivedDateTime DESC',
@@ -187,7 +190,7 @@ class MicrosoftGraphService
         try {
             // Check sent items for replies in this conversation
             $response = Http::withToken($accessToken)
-                ->get('https://graph.microsoft.com/v1.0/me/mailFolders/SentItems/messages', [
+                ->get("{$this->microsoftBaseApi}/mailFolders/SentItems/messages", [
                     '$top' => 1,
                     '$filter' => "conversationId eq '{$conversationId}'",
                     '$select' => 'id'
@@ -212,7 +215,7 @@ class MicrosoftGraphService
     {
         try {
             $response = Http::withToken($accessToken)
-                ->get("https://graph.microsoft.com/v1.0/me/messages/{$messageId}", [
+                ->get("{$this->microsoftBaseApi}/messages/{$messageId}", [
                     '$select' => 'id,subject,from,receivedDateTime,body,bodyPreview,isRead,hasAttachments,toRecipients,ccRecipients'
                 ]);
 

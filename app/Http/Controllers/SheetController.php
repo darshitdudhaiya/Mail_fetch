@@ -21,6 +21,9 @@ class SheetController extends Controller
 
     public function getSheetData(Request $request)
     {
+        $microsoftBaseApi = env('MICROSOFT_BASE_API');
+
+
         try {
             $user = User::fromSession();
             if (!$user) {
@@ -38,11 +41,11 @@ class SheetController extends Controller
                 }
             }
 
-            $filePath = '/Documents/DocSync.xlsx'; // adjust this based on your actual OneDrive folder
-            $sheetName = 'Sheet1';
+            $filePath = env('MICROSOFT_EXCEL_SHEET_PATH');
+            $sheetName = env('MICROSOFT_EXCEL_SHEET_NAME');
 
             // ✅ Fetch used range (dynamic data)
-            $graphUrl = "https://graph.microsoft.com/v1.0/me/drive/root:{$filePath}:/workbook/worksheets('{$sheetName}')/usedRange";
+            $graphUrl = "{$microsoftBaseApi}/drive/root:{$filePath}:/workbook/worksheets('{$sheetName}')/usedRange";
 
             $response = Http::withToken($accessToken)->get($graphUrl);
 
