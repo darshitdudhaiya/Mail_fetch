@@ -1,7 +1,7 @@
 <?php
 return [
 
-    'paths' => ['api/*', 'auth/*','emails/*','clickup/*','sheets/*'], // Add 'auth/*'
+    'paths' => ['api/*', 'microsoft/*', 'auth/*','emails/*','clickup/*','sheets/*'], // Add 'auth/*'
 
     'allowed_origins' => ['*'], // Or specify your HTML file's origin
     

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
-class ClickUp extends Controller
+class ClickUpController extends Controller
 {
     private $apiToken;
     private $clickupBaseApi;
@@ -155,8 +157,8 @@ class ClickUp extends Controller
      */
     public function getListsForSpace($spaceId)
     {
-
         try {
+            // Fetch all folders and lists for the space
             $foldersResponse = Http::withHeaders([
                 'Authorization' => $this->apiToken,
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/folder", [
@@ -174,54 +176,76 @@ class ClickUp extends Controller
 
             $lists = collect();
 
-            if (isset($foldersData['folders'])) {
+            // Folder-based lists
+            if (!empty($foldersData['folders'])) {
                 foreach ($foldersData['folders'] as $folder) {
-                    if (isset($folder['lists'])) {
+                    if (!empty($folder['lists'])) {
                         foreach ($folder['lists'] as $list) {
+
+                            // Fetch tasks count from list endpoint
+                            $taskResponse = Http::withHeaders([
+                                'Authorization' => $this->apiToken,
+                            ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
+                                'archived' => 'false',
+                                'page' => 0,
+                                'subtasks' => 'false',
+                            ]);
+
+                            $taskData = $taskResponse->json();
+
                             $lists->push([
                                 'id' => $list['id'],
                                 'name' => "{$folder['name']} / {$list['name']}",
+                                'task_count' => $taskData['total_tasks'] ?? 0,
                             ]);
                         }
                     }
                 }
             }
 
-            if (isset($listsData['lists'])) {
+            // Space-level lists
+            if (!empty($listsData['lists'])) {
                 foreach ($listsData['lists'] as $list) {
+
+                    $taskResponse = Http::withHeaders([
+                        'Authorization' => $this->apiToken,
+                    ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
+                        'archived' => 'false',
+                        'page' => 0,
+                        'subtasks' => 'false',
+                    ]);
+
+                    $taskData = $taskResponse->json();
+
                     $lists->push([
                         'id' => $list['id'],
                         'name' => $list['name'],
+                        'task_count' => $taskData['total_tasks'] ?? 0,
                     ]);
                 }
             }
 
-            if ($lists->isEmpty()) {
-                return response()->json([
-                    'space_id' => $spaceId,
-                    'lists' => [],
-                    'message' => 'No lists found for this space',
-                ], 200);
-            }
-
             return response()->json([
+                'success' => true,
                 'space_id' => $spaceId,
                 'lists' => $lists->values(),
-            ]);
+            ], 200);
         } catch (\Exception $e) {
+            Log::error('Error fetching lists', ['message' => $e->getMessage()]);
             return response()->json([
+                'success' => false,
                 'error' => 'Failed to fetch lists for space',
                 'message' => $e->getMessage(),
             ], 500);
         }
     }
 
+
     /**
      * Fetch all tasks for a specific ClickUp list
      */
     public function getTasksForList($listId)
     {
-
         try {
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
@@ -232,7 +256,7 @@ class ClickUp extends Controller
 
             $data = $response->json();
 
-            if (!isset($data['tasks'])) {
+            if (empty($data['tasks'])) {
                 return response()->json([
                     'list_id' => $listId,
                     'tasks' => [],
@@ -240,13 +264,31 @@ class ClickUp extends Controller
                 ], 200);
             }
 
-            $openTasks = collect($data['tasks'])->filter(function ($task) {
-                return ($task['status']['type'] ?? null) !== 'closed';
+            $today = Carbon::now()->startOfDay();
+            $tomorrow = Carbon::now()->addDay()->startOfDay();
+
+            // Filter tasks: only today, tomorrow, or overdue
+            $filteredTasks = collect($data['tasks'])->filter(function ($task) use ($today, $tomorrow) {
+                // Skip closed or missing due date
+                if (
+                    empty($task['due_date']) ||
+                    ($task['status']['type'] ?? null) === 'closed'
+                ) {
+                    return false;
+                }
+
+                // Convert ms → seconds for Carbon
+                $dueDate = Carbon::createFromTimestamp($task['due_date'] / 1000)->startOfDay();
+
+                // Include if due today, tomorrow, or overdue
+                return $dueDate->equalTo($today)
+                    || $dueDate->equalTo($tomorrow)
+                    || $dueDate->lessThan($today);
             })->values();
 
             return response()->json([
                 'list_id' => $listId,
-                'tasks' => $openTasks,
+                'tasks' => $filteredTasks,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -582,8 +624,8 @@ class ClickUp extends Controller
      */
     public function getAllListsData($spaceId)
     {
-
         try {
+            // Fetch all folders in space
             $foldersResponse = Http::withHeaders([
                 'Authorization' => $this->apiToken,
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/folder", [
@@ -592,6 +634,7 @@ class ClickUp extends Controller
 
             $foldersData = $foldersResponse->json();
 
+            // Fetch lists directly under space (not in folder)
             $listsResponse = Http::withHeaders([
                 'Authorization' => $this->apiToken,
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/list", [
@@ -602,6 +645,7 @@ class ClickUp extends Controller
 
             $allLists = collect();
 
+            // From folders
             if (!empty($foldersData['folders'])) {
                 foreach ($foldersData['folders'] as $folder) {
                     if (!empty($folder['lists'])) {
@@ -615,6 +659,7 @@ class ClickUp extends Controller
                 }
             }
 
+            // From space directly
             if (!empty($listsData['lists'])) {
                 foreach ($listsData['lists'] as $list) {
                     $allLists->push([
@@ -633,6 +678,9 @@ class ClickUp extends Controller
             }
 
             $listTasks = [];
+            $today = now()->startOfDay();
+            $tomorrow = now()->addDay()->startOfDay();
+
             foreach ($allLists as $list) {
                 $tasksResponse = Http::withHeaders([
                     'Authorization' => $this->apiToken,
@@ -642,10 +690,25 @@ class ClickUp extends Controller
                 ]);
 
                 $tasksData = $tasksResponse->json();
+                $tasks = $tasksData['tasks'] ?? [];
+
+                // Filter tasks by due date
+                $filteredTasks = collect($tasks)->filter(function ($task) use ($today, $tomorrow) {
+                    if (empty($task['due_date'])) {
+                        return false;
+                    }
+
+                    $dueDate = Carbon::createFromTimestampMs($task['due_date'])->startOfDay();
+
+                    return $dueDate->equalTo($today) // today
+                        || $dueDate->equalTo($tomorrow) // tomorrow
+                        || $dueDate->lessThan($today); // overdue
+                })->values()->all();
+
                 $listTasks[] = [
                     'list_id' => $list['id'],
                     'list_name' => $list['name'],
-                    'tasks' => $tasksData['tasks'] ?? [],
+                    'tasks' => $filteredTasks,
                 ];
             }
 
@@ -662,6 +725,7 @@ class ClickUp extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Fetch folders and lists for a given ClickUp space
