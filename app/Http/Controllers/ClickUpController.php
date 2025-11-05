@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use Carbon\Carbon;
@@ -14,10 +13,9 @@ class ClickUpController extends Controller
 
     public function __construct()
     {
-        $this->apiToken = env('CLICKUP_API_TOKEN');
+        $this->apiToken       = env('CLICKUP_API_TOKEN');
         $this->clickupBaseApi = env('CLICKUP_BASE_API');
     }
-
 
     /**
      * Fetch all teams from ClickUp
@@ -33,7 +31,7 @@ class ClickUpController extends Controller
             return response()->json($response->json(), $response->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch ClickUp teams',
+                'error'   => 'Failed to fetch ClickUp teams',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -53,7 +51,7 @@ class ClickUpController extends Controller
             return response()->json($response->json(), $response->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch ClickUp teams',
+                'error'   => 'Failed to fetch ClickUp teams',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -72,24 +70,24 @@ class ClickUpController extends Controller
 
             $data = $response->json();
 
-            if (!isset($data['teams']) || count($data['teams']) === 0) {
+            if (! isset($data['teams']) || count($data['teams']) === 0) {
                 return response()->json([
                     'error' => 'No teams found',
                 ], 404);
             }
 
             $workspaces = collect($data['teams'])->map(fn($team) => [
-                'id' => $team['id'],
+                'id'   => $team['id'],
                 'name' => $team['name'],
             ])->values();
 
             return response()->json([
                 'workspaces' => $workspaces,
-                'raw' => $data,
+                'raw'        => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch workspaces',
+                'error'   => 'Failed to fetch workspaces',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -108,17 +106,17 @@ class ClickUpController extends Controller
 
             $data = $response->json();
 
-            if (!isset($data['team']['members'])) {
+            if (! isset($data['team']['members'])) {
                 return response()->json([
                     'error' => 'No members found for this workspace',
-                    'raw' => $data
+                    'raw'   => $data,
                 ], 404);
             }
 
             $members = collect($data['team']['members'])->map(fn($m) => [
-                'id' => $m['user']['id'] ?? null,
+                'id'       => $m['user']['id'] ?? null,
                 'username' => $m['user']['username'] ?? null,
-                'email' => $m['user']['email'] ?? null,
+                'email'    => $m['user']['email'] ?? null,
             ])->filter(fn($m) => $m['id'] !== null)->values();
 
             return response()->json([
@@ -127,7 +125,7 @@ class ClickUpController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch workspace members',
+                'error'   => 'Failed to fetch workspace members',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -148,25 +146,25 @@ class ClickUpController extends Controller
 
             $data = $response->json();
 
-            if (!isset($data['spaces'])) {
+            if (! isset($data['spaces'])) {
                 return response()->json([
                     'error' => 'No spaces found for this workspace',
-                    'raw' => $data,
+                    'raw'   => $data,
                 ], 404);
             }
 
             $spaces = collect($data['spaces'])->map(fn($s) => [
-                'id' => $s['id'],
+                'id'   => $s['id'],
                 'name' => $s['name'],
             ])->values();
 
             return response()->json([
                 'team_id' => $teamId,
-                'spaces' => $spaces,
+                'spaces'  => $spaces,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch spaces for workspace',
+                'error'   => 'Failed to fetch spaces for workspace',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -192,14 +190,14 @@ class ClickUpController extends Controller
             ]);
 
             $foldersData = $foldersResponse->json();
-            $listsData = $listsResponse->json();
+            $listsData   = $listsResponse->json();
 
             $lists = collect();
 
             // Folder-based lists
-            if (!empty($foldersData['folders'])) {
+            if (! empty($foldersData['folders'])) {
                 foreach ($foldersData['folders'] as $folder) {
-                    if (!empty($folder['lists'])) {
+                    if (! empty($folder['lists'])) {
                         foreach ($folder['lists'] as $list) {
 
                             // Fetch tasks count from list endpoint
@@ -207,14 +205,14 @@ class ClickUpController extends Controller
                                 'Authorization' => $this->apiToken,
                             ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                                 'archived' => 'false',
-                                'page' => 0,
+                                'page'     => 0,
                                 'subtasks' => 'false',
                             ]);
 
                             $taskData = $taskResponse->json();
 
                             $lists->push([
-                                'id' => $list['id'],
+                                'id'   => $list['id'],
                                 'name' => "{$folder['name']} / {$list['name']}",
                                 'task_count' => $taskData['total_tasks'] ?? 0,
                             ]);
@@ -224,157 +222,154 @@ class ClickUpController extends Controller
             }
 
             // Space-level lists
-            if (!empty($listsData['lists'])) {
+            if (! empty($listsData['lists'])) {
                 foreach ($listsData['lists'] as $list) {
 
                     $taskResponse = Http::withHeaders([
                         'Authorization' => $this->apiToken,
                     ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                         'archived' => 'false',
-                        'page' => 0,
+                        'page'     => 0,
                         'subtasks' => 'false',
                     ]);
 
                     $taskData = $taskResponse->json();
 
                     $lists->push([
-                        'id' => $list['id'],
-                        'name' => $list['name'],
+                        'id'         => $list['id'],
+                        'name'       => $list['name'],
                         'task_count' => $taskData['total_tasks'] ?? 0,
                     ]);
                 }
             }
 
             return response()->json([
-                'success' => true,
+                'success'  => true,
                 'space_id' => $spaceId,
-                'lists' => $lists->values(),
+                'lists'    => $lists->values(),
             ], 200);
         } catch (\Exception $e) {
             Log::error('Error fetching lists', ['message' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
-                'error' => 'Failed to fetch lists for space',
+                'error'   => 'Failed to fetch lists for space',
                 'message' => $e->getMessage(),
             ], 500);
         }
     }
 
+    /**
+     * Fetch all tasks for a specific ClickUp list (with optional assignee filter + pagination)
+     */
+    public function getTasksForList(Request $request, $listId)
+    {
+        try {
+            $assigneeId = $request->query('assignee'); // ?assignee=12345
+            $page       = (int) ($request->query('page', 1));
+            $perPage    = (int) ($request->query('per_page', 10));
 
-   /**
- * Fetch all tasks for a specific ClickUp list (with optional assignee filter + pagination)
- */
-public function getTasksForList(Request $request, $listId)
-{
-    try {
-        $assigneeId = $request->query('assignee'); // ?assignee=12345
-        $page = (int) ($request->query('page', 1));
-        $perPage = (int) ($request->query('per_page', 10));
+            // sanitize incoming values
+            $page    = $page > 0 ? $page : 1;
+            $perPage = $perPage > 0 ? $perPage : 10;
 
-        // sanitize incoming values
-        $page = $page > 0 ? $page : 1;
-        $perPage = $perPage > 0 ? $perPage : 10;
+            // 🔁 ClickUp expects 0-based page index
+            $clickupPage = $page - 1;
 
-        // 🔁 ClickUp expects 0-based page index
-        $clickupPage = $page - 1;
+            // Build ClickUp query params
+            $queryParams = [
+                'archived'       => 'false',
+                'include_closed' => 'true',
+                'subtasks'       => 'true',
+                'page'           => $clickupPage, // <-- 0-based for ClickUp
+                'page_size'      => $perPage,     // <-- limit results per request
+            ];
 
-        // Build ClickUp query params
-        $queryParams = [
-            'archived' => 'false',
-            'include_closed' => 'true',
-            'subtasks' => 'true',
-            'page' => $clickupPage,     // <-- 0-based for ClickUp
-            'page_size' => $perPage,    // <-- limit results per request
-        ];
-
-        if (!empty($assigneeId)) {
-            $queryParams['assignees[]'] = $assigneeId;
-        }
-
-        // Call ClickUp
-        $response = Http::withHeaders([
-            'Authorization' => $this->apiToken,
-        ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
-
-        if (!$response->successful()) {
-            return response()->json([
-                'error'   => 'Failed to fetch tasks from ClickUp',
-                'details' => $response->json(),
-            ], $response->status());
-        }
-
-        $data = $response->json();
-        $rawTasks = $data['tasks'] ?? [];
-
-        // Even if ClickUp returned no tasks at all
-        if (empty($rawTasks)) {
-            return response()->json([
-                'success' => true,
-                'list_id' => $listId,
-                'assignee_filter' => $assigneeId ?? null,
-                'page' => $page,
-                'per_page' => $perPage,
-                'total' => 0,
-                'total_pages' => 0,
-                'count' => 0,
-                'tasks' => [],
-                'message' => 'No tasks found for this list',
-            ], 200);
-        }
-
-        $today = Carbon::now()->startOfDay();
-        $tomorrow = Carbon::now()->addDay()->startOfDay();
-
-        // Keep only: overdue, due today, or due tomorrow, and not closed
-        $filteredTasks = collect($rawTasks)->filter(function ($task) use ($today, $tomorrow) {
-
-            // must have a due_date
-            if (empty($task['due_date'])) {
-                return false;
+            if (! empty($assigneeId)) {
+                $queryParams['assignees[]'] = $assigneeId;
             }
 
-            // skip closed
-            if (($task['status']['type'] ?? null) === 'closed') {
-                return false;
+            // Call ClickUp
+            $response = Http::withHeaders([
+                'Authorization' => $this->apiToken,
+            ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
+
+            if (! $response->successful()) {
+                return response()->json([
+                    'error'   => 'Failed to fetch tasks from ClickUp',
+                    'details' => $response->json(),
+                ], $response->status());
             }
 
-            // convert ms → Carbon day
-            $dueDate = Carbon::createFromTimestamp($task['due_date'] / 1000)->startOfDay();
+            $data     = $response->json();
+            $rawTasks = $data['tasks'] ?? [];
 
-            // include if overdue OR today OR tomorrow
-            return $dueDate->equalTo($today)
+            // Even if ClickUp returned no tasks at all
+            if (empty($rawTasks)) {
+                return response()->json([
+                    'success'         => true,
+                    'list_id'         => $listId,
+                    'assignee_filter' => $assigneeId ?? null,
+                    'page'            => $page,
+                    'per_page'        => $perPage,
+                    'total'           => 0,
+                    'total_pages'     => 0,
+                    'count'           => 0,
+                    'tasks'           => [],
+                    'message'         => 'No tasks found for this list',
+                ], 200);
+            }
+
+            $today    = Carbon::now()->startOfDay();
+            $tomorrow = Carbon::now()->addDay()->startOfDay();
+
+            // Keep only: overdue, due today, or due tomorrow, and not closed
+            $filteredTasks = collect($rawTasks)->filter(function ($task) use ($today, $tomorrow) {
+
+                // must have a due_date
+                if (empty($task['due_date'])) {
+                    return false;
+                }
+
+                // skip closed
+                if (($task['status']['type'] ?? null) === 'closed') {
+                    return false;
+                }
+
+                // convert ms → Carbon day
+                $dueDate = Carbon::createFromTimestamp($task['due_date'] / 1000)->startOfDay();
+
+                // include if overdue OR today OR tomorrow
+                return $dueDate->equalTo($today)
                 || $dueDate->equalTo($tomorrow)
                 || $dueDate->lessThan($today);
-        })->values();
+            })->values();
 
-        // after filtering we might have fewer than $perPage, that's fine
-        $countOnThisPage = $filteredTasks->count();
+            // after filtering we might have fewer than $perPage, that's fine
+            $countOnThisPage = $filteredTasks->count();
 
-        // ⚠️ ClickUp doesn't give us a reliable total after filters like this,
-        // so we'll approximate totals based on just this page.
-        // Frontend should treat `total_pages` as "unknown" unless you want to
-        // implement a deeper scan across pages.
-        return response()->json([
-            'success' => true,
-            'list_id' => $listId,
-            'assignee_filter' => $assigneeId ?? null,
-            'page' => $page,          // 1-based for frontend
-            'per_page' => $perPage,
-            'total' => $countOnThisPage,
-            'total_pages' => $countOnThisPage > 0 ? $page : $page - 1,
-            'count' => $countOnThisPage,
-            'tasks' => $filteredTasks,
-        ], 200);
+            // ⚠️ ClickUp doesn't give us a reliable total after filters like this,
+            // so we'll approximate totals based on just this page.
+            // Frontend should treat `total_pages` as "unknown" unless you want to
+            // implement a deeper scan across pages.
+            return response()->json([
+                'success'         => true,
+                'list_id'         => $listId,
+                'assignee_filter' => $assigneeId ?? null,
+                'page'            => $page, // 1-based for frontend
+                'per_page'        => $perPage,
+                'total'           => $countOnThisPage,
+                'total_pages'     => $countOnThisPage > 0 ? $page : $page - 1,
+                'count'           => $countOnThisPage,
+                'tasks'           => $filteredTasks,
+            ], 200);
 
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => 'Failed to fetch tasks for list',
-            'message' => $e->getMessage(),
-        ], 500);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error'   => 'Failed to fetch tasks for list',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
-}
-
-
 
     /**
      * Fetch available statuses for a given ClickUp list
@@ -389,11 +384,11 @@ public function getTasksForList(Request $request, $listId)
 
             $data = $response->json();
 
-            if (!isset($data['statuses'])) {
+            if (! isset($data['statuses'])) {
                 return response()->json([
-                    'list_id' => $listId,
+                    'list_id'  => $listId,
                     'statuses' => [],
-                    'message' => 'No statuses found for this list',
+                    'message'  => 'No statuses found for this list',
                 ], 200);
             }
 
@@ -401,13 +396,13 @@ public function getTasksForList(Request $request, $listId)
                 ->firstWhere('type', 'closed');
 
             return response()->json([
-                'list_id' => $listId,
-                'statuses' => $data['statuses'],
+                'list_id'       => $listId,
+                'statuses'      => $data['statuses'],
                 'closed_status' => $closedStatus['status'] ?? null,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to load statuses for list',
+                'error'   => 'Failed to load statuses for list',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -429,18 +424,18 @@ public function getTasksForList(Request $request, $listId)
             $lastComment = null;
 
             if (isset($data['comments']) && count($data['comments']) > 0) {
-                $last = end($data['comments']);
+                $last        = end($data['comments']);
                 $lastComment = $last['comment_text'] ?? null;
             }
 
             return response()->json([
-                'task_id' => $taskId,
-                'last_comment' => $lastComment,
+                'task_id'        => $taskId,
+                'last_comment'   => $lastComment,
                 'total_comments' => count($data['comments'] ?? []),
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch last comment for task',
+                'error'   => 'Failed to fetch last comment for task',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -459,7 +454,7 @@ public function getTasksForList(Request $request, $listId)
         try {
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $validated['status'],
             ]);
@@ -468,61 +463,105 @@ public function getTasksForList(Request $request, $listId)
 
             if ($response->successful() && isset($data['id'])) {
                 return response()->json([
-                    'success' => true,
-                    'task_id' => $taskId,
-                    'new_status' => $validated['status'],
+                    'success'          => true,
+                    'task_id'          => $taskId,
+                    'new_status'       => $validated['status'],
                     'clickup_response' => $data,
                 ]);
             } else {
                 return response()->json([
                     'success' => false,
-                    'error' => $data['err'] ?? 'Could not update task status',
-                    'raw' => $data,
+                    'error'   => $data['err'] ?? 'Could not update task status',
+                    'raw'     => $data,
                 ], $response->status());
             }
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to update task status',
+                'error'   => 'Failed to update task status',
                 'message' => $e->getMessage(),
             ], 500);
         }
     }
 
     /**
-     * Fetch all completed (closed) tasks for a given list
+     * Fetch all completed (closed) tasks for a given list (with pagination)
      */
-    public function getCompletedTasks($listId)
+    public function getCompletedTasks(Request $request, $listId)
     {
-
         try {
+            $page    = (int) ($request->query('page', 1));
+            $perPage = (int) ($request->query('per_page', 10));
+
+            // Ensure valid pagination values
+            $page    = $page > 0 ? $page : 1;
+            $perPage = $perPage > 0 ? $perPage : 10;
+
+            // ClickUp uses 0-based pagination
+            $clickupPage = $page - 1;
+
+            // ✅ Prepare query parameters
+            $queryParams = [
+                'archived'       => 'false',
+                'include_closed' => 'true',
+                'subtasks'       => 'true',
+                'page'           => $clickupPage, // 0-based for ClickUp
+                'page_size'      => $perPage,     // Limit per page
+            ];
+
+            // ✅ Fetch from ClickUp API
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-            ])->get("{$this->clickupBaseApi}/list/{$listId}/task", [
-                'archived' => 'false',
-                'include_closed' => 'true',
-            ]);
+            ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
+
+            if (! $response->successful()) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => 'Failed to fetch completed tasks from ClickUp',
+                    'details' => $response->json(),
+                ], $response->status());
+            }
 
             $data = $response->json();
 
-            if (!isset($data['tasks'])) {
+            if (empty($data['tasks'])) {
                 return response()->json([
-                    'list_id' => $listId,
-                    'tasks' => [],
-                    'message' => 'No tasks found for this list',
+                    'success'     => true,
+                    'list_id'     => $listId,
+                    'tasks'       => [],
+                    'page'        => $page,
+                    'per_page'    => $perPage,
+                    'count'       => 0,
+                    'total'       => 0,
+                    'total_pages' => 1,
+                    'message'     => 'No completed tasks found for this list',
                 ], 200);
             }
 
+            // ✅ Filter only completed (closed) tasks
             $completedTasks = collect($data['tasks'])->filter(function ($task) {
                 return ($task['status']['type'] ?? null) === 'closed';
             })->values();
 
+            // ✅ Local pagination (if ClickUp didn’t apply page_size)
+            $totalCount = $completedTasks->count();
+            $totalPages = ceil($totalCount / $perPage);
+
+            $paginatedTasks = $completedTasks->slice(($page - 1) * $perPage, $perPage)->values();
+
             return response()->json([
-                'list_id' => $listId,
-                'tasks' => $completedTasks,
+                'success'     => true,
+                'list_id'     => $listId,
+                'page'        => $page,
+                'per_page'    => $perPage,
+                'count'       => $paginatedTasks->count(),
+                'total'       => $totalCount,
+                'total_pages' => $totalPages,
+                'tasks'       => $paginatedTasks,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch completed tasks',
+                'success' => false,
+                'error'   => 'Failed to fetch completed tasks',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -541,10 +580,10 @@ public function getTasksForList(Request $request, $listId)
 
             $taskData = $listIdResponse->json();
 
-            if (!isset($taskData['list']['id'])) {
+            if (! isset($taskData['list']['id'])) {
                 return response()->json([
                     'error' => 'Unable to determine list for task.',
-                    'data' => $taskData
+                    'data'  => $taskData,
                 ], 400);
             }
 
@@ -556,24 +595,24 @@ public function getTasksForList(Request $request, $listId)
 
             $listData = $listResponse->json();
 
-            if (!isset($listData['statuses'])) {
+            if (! isset($listData['statuses'])) {
                 return response()->json([
-                    'error' => 'No statuses found for list.',
-                    'list_data' => $listData
+                    'error'     => 'No statuses found for list.',
+                    'list_data' => $listData,
                 ], 400);
             }
 
             $closedStatus = collect($listData['statuses'])->firstWhere('type', 'closed')['status'] ?? null;
 
-            if (!$closedStatus) {
+            if (! $closedStatus) {
                 return response()->json([
-                    'error' => 'Closed status not found for this list.'
+                    'error' => 'Closed status not found for this list.',
                 ], 400);
             }
 
             $updateResponse = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $closedStatus,
             ]);
@@ -582,21 +621,21 @@ public function getTasksForList(Request $request, $listId)
 
             if ($updateResponse->successful() && isset($data['id'])) {
                 return response()->json([
-                    'success' => true,
-                    'task_id' => $taskId,
-                    'new_status' => $closedStatus,
+                    'success'          => true,
+                    'task_id'          => $taskId,
+                    'new_status'       => $closedStatus,
                     'clickup_response' => $data,
                 ]);
             }
 
             return response()->json([
-                'success' => false,
-                'error' => 'Could not close the task',
+                'success'          => false,
+                'error'            => 'Could not close the task',
                 'clickup_response' => $data,
             ], $updateResponse->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to close task',
+                'error'   => 'Failed to close task',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -615,7 +654,7 @@ public function getTasksForList(Request $request, $listId)
         try {
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->post("{$this->clickupBaseApi}/task/{$taskId}/comment", [
                 'comment_text' => $validated['comment_text'],
             ]);
@@ -631,13 +670,13 @@ public function getTasksForList(Request $request, $listId)
             }
 
             return response()->json([
-                'success' => false,
-                'error' => $data['err'] ?? 'Failed to add comment',
+                'success'          => false,
+                'error'            => $data['err'] ?? 'Failed to add comment',
                 'clickup_response' => $data,
             ], $response->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Error saving comment',
+                'error'   => 'Error saving comment',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -650,29 +689,29 @@ public function getTasksForList(Request $request, $listId)
     {
 
         $validated = $request->validate([
-            'name' => 'required|string',
+            'name'        => 'required|string',
             'description' => 'nullable|string',
-            'due_date' => 'nullable|numeric',
-            'assignees' => 'nullable|array',
+            'due_date'    => 'nullable|numeric',
+            'assignees'   => 'nullable|array',
         ]);
 
         try {
             $payload = [
-                'name' => $validated['name'],
+                'name'        => $validated['name'],
                 'description' => $validated['description'] ?? '',
             ];
 
-            if (!empty($validated['due_date'])) {
+            if (! empty($validated['due_date'])) {
                 $payload['due_date'] = $validated['due_date'];
             }
 
-            if (!empty($validated['assignees'])) {
+            if (! empty($validated['assignees'])) {
                 $payload['assignees'] = $validated['assignees'];
             }
 
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->post("{$this->clickupBaseApi}/list/{$listId}/task", $payload);
 
             $data = $response->json();
@@ -680,18 +719,18 @@ public function getTasksForList(Request $request, $listId)
             if ($response->successful() && isset($data['id'])) {
                 return response()->json([
                     'success' => true,
-                    'task' => $data,
+                    'task'    => $data,
                 ]);
             }
 
             return response()->json([
-                'success' => false,
-                'error' => $data['err'] ?? 'Failed to create task',
+                'success'          => false,
+                'error'            => $data['err'] ?? 'Failed to create task',
                 'clickup_response' => $data,
             ], $response->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Error creating task',
+                'error'   => 'Error creating task',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -724,12 +763,12 @@ public function getTasksForList(Request $request, $listId)
             $allLists = collect();
 
             // From folders
-            if (!empty($foldersData['folders'])) {
+            if (! empty($foldersData['folders'])) {
                 foreach ($foldersData['folders'] as $folder) {
-                    if (!empty($folder['lists'])) {
+                    if (! empty($folder['lists'])) {
                         foreach ($folder['lists'] as $list) {
                             $allLists->push([
-                                'id' => $list['id'],
+                                'id'   => $list['id'],
                                 'name' => "{$folder['name']} / {$list['name']}",
                             ]);
                         }
@@ -738,10 +777,10 @@ public function getTasksForList(Request $request, $listId)
             }
 
             // From space directly
-            if (!empty($listsData['lists'])) {
+            if (! empty($listsData['lists'])) {
                 foreach ($listsData['lists'] as $list) {
                     $allLists->push([
-                        'id' => $list['id'],
+                        'id'   => $list['id'],
                         'name' => $list['name'],
                     ]);
                 }
@@ -751,24 +790,24 @@ public function getTasksForList(Request $request, $listId)
                 return response()->json([
                     'success' => true,
                     'message' => 'No lists found in this space.',
-                    'lists' => [],
+                    'lists'   => [],
                 ]);
             }
 
             $listTasks = [];
-            $today = now()->startOfDay();
-            $tomorrow = now()->addDay()->startOfDay();
+            $today     = now()->startOfDay();
+            $tomorrow  = now()->addDay()->startOfDay();
 
             foreach ($allLists as $list) {
                 $tasksResponse = Http::withHeaders([
                     'Authorization' => $this->apiToken,
                 ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
-                    'archived' => 'false',
+                    'archived'       => 'false',
                     'include_closed' => 'true',
                 ]);
 
                 $tasksData = $tasksResponse->json();
-                $tasks = $tasksData['tasks'] ?? [];
+                $tasks     = $tasksData['tasks'] ?? [];
 
                 // Filter tasks by due date
                 $filteredTasks = collect($tasks)->filter(function ($task) use ($today, $tomorrow) {
@@ -779,31 +818,30 @@ public function getTasksForList(Request $request, $listId)
                     $dueDate = Carbon::createFromTimestampMs($task['due_date'])->startOfDay();
 
                     return $dueDate->equalTo($today) // today
-                        || $dueDate->equalTo($tomorrow) // tomorrow
-                        || $dueDate->lessThan($today); // overdue
+                    || $dueDate->equalTo($tomorrow)  // tomorrow
+                    || $dueDate->lessThan($today);   // overdue
                 })->values()->all();
 
                 $listTasks[] = [
-                    'list_id' => $list['id'],
+                    'list_id'   => $list['id'],
                     'list_name' => $list['name'],
-                    'tasks' => $filteredTasks,
+                    'tasks'     => $filteredTasks,
                 ];
             }
 
             return response()->json([
-                'success' => true,
-                'space_id' => $spaceId,
-                'lists' => $allLists,
+                'success'    => true,
+                'space_id'   => $spaceId,
+                'lists'      => $allLists,
                 'list_tasks' => $listTasks,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch all lists and tasks',
+                'error'   => 'Failed to fetch all lists and tasks',
                 'message' => $e->getMessage(),
             ], 500);
         }
     }
-
 
     /**
      * Fetch folders and lists for a given ClickUp space
@@ -825,16 +863,16 @@ public function getTasksForList(Request $request, $listId)
             ]);
 
             $foldersData = $foldersResponse->json();
-            $listsData = $listsResponse->json();
+            $listsData   = $listsResponse->json();
 
             $allLists = [];
 
-            if (!empty($foldersData['folders'])) {
+            if (! empty($foldersData['folders'])) {
                 foreach ($foldersData['folders'] as $folder) {
-                    if (!empty($folder['lists'])) {
+                    if (! empty($folder['lists'])) {
                         foreach ($folder['lists'] as $list) {
                             $allLists[] = [
-                                'id' => $list['id'],
+                                'id'   => $list['id'],
                                 'name' => "{$folder['name']} / {$list['name']}",
                             ];
                         }
@@ -842,23 +880,23 @@ public function getTasksForList(Request $request, $listId)
                 }
             }
 
-            if (!empty($listsData['lists'])) {
+            if (! empty($listsData['lists'])) {
                 foreach ($listsData['lists'] as $list) {
                     $allLists[] = [
-                        'id' => $list['id'],
+                        'id'   => $list['id'],
                         'name' => $list['name'],
                     ];
                 }
             }
 
             return response()->json([
-                'success' => true,
+                'success'  => true,
                 'space_id' => $spaceId,
-                'lists' => $allLists,
+                'lists'    => $allLists,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch lists for space',
+                'error'   => 'Failed to fetch lists for space',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -877,10 +915,10 @@ public function getTasksForList(Request $request, $listId)
 
             $taskData = $taskResponse->json();
 
-            if (!isset($taskData['list']['id'])) {
+            if (! isset($taskData['list']['id'])) {
                 return response()->json([
                     'error' => 'Unable to determine list for this task.',
-                    'data' => $taskData,
+                    'data'  => $taskData,
                 ], 400);
             }
 
@@ -894,14 +932,14 @@ public function getTasksForList(Request $request, $listId)
 
             if (empty($listData['statuses'])) {
                 return response()->json([
-                    'error' => 'No statuses found for this list.',
+                    'error'     => 'No statuses found for this list.',
                     'list_data' => $listData,
                 ], 400);
             }
 
             $openStatus = collect($listData['statuses'])->firstWhere('type', '!=', 'closed');
 
-            if (!$openStatus) {
+            if (! $openStatus) {
                 return response()->json([
                     'error' => 'No open status found for this list.',
                 ], 400);
@@ -909,7 +947,7 @@ public function getTasksForList(Request $request, $listId)
 
             $updateResponse = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $openStatus['status'],
             ]);
@@ -918,21 +956,21 @@ public function getTasksForList(Request $request, $listId)
 
             if ($updateResponse->successful() && isset($updateData['id'])) {
                 return response()->json([
-                    'success' => true,
-                    'task_id' => $taskId,
-                    'new_status' => $openStatus['status'],
+                    'success'          => true,
+                    'task_id'          => $taskId,
+                    'new_status'       => $openStatus['status'],
                     'clickup_response' => $updateData,
                 ]);
             }
 
             return response()->json([
-                'success' => false,
-                'error' => 'Failed to reopen task.',
+                'success'          => false,
+                'error'            => 'Failed to reopen task.',
                 'clickup_response' => $updateData,
             ], $updateResponse->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Error reopening task.',
+                'error'   => 'Error reopening task.',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -951,7 +989,7 @@ public function getTasksForList(Request $request, $listId)
         try {
             $response = Http::withHeaders([
                 'Authorization' => $this->apiToken,
-                'Content-Type' => 'application/json',
+                'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'due_date' => $validated['due_date'],
             ]);
@@ -960,21 +998,21 @@ public function getTasksForList(Request $request, $listId)
 
             if ($response->successful()) {
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Due date updated successfully.',
-                    'task_id' => $taskId,
+                    'success'          => true,
+                    'message'          => 'Due date updated successfully.',
+                    'task_id'          => $taskId,
                     'clickup_response' => $data,
                 ]);
             }
 
             return response()->json([
                 'success' => false,
-                'error' => $data['err'] ?? 'Failed to update due date',
-                'raw' => $data,
+                'error'   => $data['err'] ?? 'Failed to update due date',
+                'raw'     => $data,
             ], $response->status());
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Error updating due date',
+                'error'   => 'Error updating due date',
                 'message' => $e->getMessage(),
             ], 500);
         }
