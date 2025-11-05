@@ -4,6 +4,7 @@ use App\Http\Controllers\ClickUpController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('clickup')->group(function () {
+    Route::get('/auth/user', [ClickUpController::class, 'getUser']);
     Route::get('/teams', [ClickUpController::class, 'getTeams']);
     Route::get('/workspaces', [ClickUpController::class, 'getWorkspaces']);
     Route::get('/workspace/{teamId}/members', [ClickUpController::class, 'getWorkspaceMembers']);

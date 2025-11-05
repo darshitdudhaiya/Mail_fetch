@@ -21,7 +21,6 @@ class MicrosoftGraphService
         $this->clientSecret = env('MICROSOFT_CLIENT_SECRET');
         $this->redirectUri = env('MICROSOFT_REDIRECT_URI');
         $this->microsoftBaseApi = env('MICROSOFT_BASE_API');
-
     }
 
     /**
@@ -83,7 +82,7 @@ class MicrosoftGraphService
         return null;
     }
 
-    public function getUnrepliedEmails($accessToken, $maxResults = 50, $startDate = null, $endDate = null)
+    public function getUnrepliedEmails($accessToken, $page = 1, $perPage = 10, $startDate = null, $endDate = null)
     {
         try {
             $filterParts = ["isDraft eq false"];
@@ -98,9 +97,16 @@ class MicrosoftGraphService
 
             $filter = implode(' and ', $filterParts);
 
+            $page = is_numeric($page) && $page > 0 ? (int)$page : 1;
+            $perPage = is_numeric($perPage) && $perPage > 0 ? (int)$perPage : 10;
+
+            // Calculate skip count for pagination
+            $skip = ($page - 1) * $perPage;
+
             $response = Http::withToken($accessToken)
                 ->get("{$this->microsoftBaseApi}/mailFolders/inbox/messages", [
-                    '$top' => $maxResults,
+                    '$top' => $perPage,
+                    '$skip' => $skip,
                     '$select' => 'id,subject,from,receivedDateTime,bodyPreview,isRead,conversationId,hasAttachments,webLink',
                     '$orderby' => 'receivedDateTime DESC',
                     '$filter' => $filter,
@@ -109,10 +115,10 @@ class MicrosoftGraphService
             if ($response->successful()) {
                 $messages = $response->json()['value'] ?? [];
 
-                // Filter unreplied emails
-                $unrepliedEmails = $this->filterUnrepliedEmails($messages, $accessToken);
+                // Filter unreplied emails and add statuses
+                $unrepliedEmails = $this->filterUnrepliedEmailsWithStatus($messages, $accessToken);
 
-                // Add Outlook web links
+                // Add Outlook web links if missing
                 $unrepliedEmails = array_map(function ($email) {
                     if (!isset($email['webLink'])) {
                         $email['webLink'] = "https://outlook.live.com/mail/0/inbox/id/" . $email['id'];
@@ -122,8 +128,10 @@ class MicrosoftGraphService
 
                 return [
                     'success' => true,
-                    'emails' => $unrepliedEmails,
+                    'page' => $page,
+                    'per_page' => $perPage,
                     'count' => count($unrepliedEmails),
+                    'emails' => $unrepliedEmails,
                 ];
             }
 
@@ -140,6 +148,7 @@ class MicrosoftGraphService
             ];
         }
     }
+
 
     /**
      * Format date for Microsoft Graph filter
@@ -207,6 +216,48 @@ class MicrosoftGraphService
             return false;
         }
     }
+
+    /**
+     * Filter emails that haven't been replied to and/or are unread
+     */
+    private function filterUnrepliedEmailsWithStatus($messages, $accessToken)
+    {
+        $filtered = [];
+
+        foreach ($messages as $message) {
+            $conversationId = $message['conversationId'];
+            $isRead = $message['isRead'] ?? false;
+
+            // Check if this conversation has a reply
+            $hasReply = $this->checkIfReplied($conversationId, $accessToken);
+
+            // Determine status
+            $status = [];
+            if (!$hasReply) $status[] = 'unreplied';
+            if (!$isRead) $status[] = 'unread';
+
+            // Skip emails that are both replied AND read (status empty)
+            if (empty($status)) {
+                continue; // 🔥 skip this email entirely
+            }
+
+            $filtered[] = [
+                'id' => $message['id'],
+                'subject' => $message['subject'] ?? '(No Subject)',
+                'from' => $message['from']['emailAddress']['address'] ?? 'Unknown',
+                'fromName' => $message['from']['emailAddress']['name'] ?? 'Unknown',
+                'receivedDateTime' => $message['receivedDateTime'] ?? null,
+                'bodyPreview' => $message['bodyPreview'] ?? '',
+                'isRead' => $isRead,
+                'hasAttachments' => $message['hasAttachments'] ?? false,
+                'status' => implode(', ', $status),
+            ];
+        }
+
+        return $filtered;
+    }
+
+
 
     /**
      * Get email details by ID

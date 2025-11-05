@@ -45,7 +45,7 @@ class MicrosoftAuthController extends Controller
                     'code_verifier' => $codeVerifier,
                 ]
             );
-            
+
             if ($response->successful()) {
                 $data = $response->json();
                 // Get user info from Microsoft Graph
@@ -91,8 +91,8 @@ class MicrosoftAuthController extends Controller
             $response = Http::withToken($accessToken)
                 ->get("{$microsoftBaseApi}");
 
-                Log::info('User Info response', ['response' => $response->json()]);
-                Log::info('status', ['status' => $response->status()]);
+            Log::info('User Info response', ['response' => $response->json()]);
+            Log::info('status', ['status' => $response->status()]);
 
             if ($response->successful()) {
                 return $response->json();
@@ -131,7 +131,7 @@ class MicrosoftAuthController extends Controller
     }
 
     /**
-     * Fetch unreplied emails for authenticated user (with optional date filter)
+     * Fetch unreplied emails for authenticated user (with optional date filter + pagination)
      */
     public function getUnrepliedEmails(Request $request)
     {
@@ -170,12 +170,17 @@ class MicrosoftAuthController extends Controller
                 $accessToken = $newToken;
             }
 
+            // ✅ Pagination + date filters
+            $page = $request->query('page', 1);
+            $perPage = $request->query('per_page', 10);
             $startDate = $request->query('startDate');
-            $endDate   = $request->query('endDate');
+            $endDate = $request->query('endDate');
 
+            // ✅ Correct argument order
             $result = $this->graphService->getUnrepliedEmails(
                 $accessToken,
-                50, // max results
+                $page,
+                $perPage,
                 $startDate,
                 $endDate
             );

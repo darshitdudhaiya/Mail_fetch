@@ -22,6 +22,26 @@ class ClickUpController extends Controller
     /**
      * Fetch all teams from ClickUp
      */
+    public function getUser()
+    {
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => $this->apiToken,
+            ])->get("{$this->clickupBaseApi}/user");
+
+            return response()->json($response->json(), $response->status());
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch ClickUp teams',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Fetch all teams from ClickUp
+     */
     public function getTeams()
     {
 
@@ -241,62 +261,120 @@ class ClickUpController extends Controller
     }
 
 
-    /**
-     * Fetch all tasks for a specific ClickUp list
-     */
-    public function getTasksForList($listId)
-    {
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
-            ])->get("{$this->clickupBaseApi}/list/{$listId}/task", [
-                'archived' => 'false',
-                'include_closed' => 'true',
-            ]);
+   /**
+ * Fetch all tasks for a specific ClickUp list (with optional assignee filter + pagination)
+ */
+public function getTasksForList(Request $request, $listId)
+{
+    try {
+        $assigneeId = $request->query('assignee'); // ?assignee=12345
+        $page = (int) ($request->query('page', 1));
+        $perPage = (int) ($request->query('per_page', 10));
 
-            $data = $response->json();
+        // sanitize incoming values
+        $page = $page > 0 ? $page : 1;
+        $perPage = $perPage > 0 ? $perPage : 10;
 
-            if (empty($data['tasks'])) {
-                return response()->json([
-                    'list_id' => $listId,
-                    'tasks' => [],
-                    'message' => 'No tasks found for this list',
-                ], 200);
+        // 🔁 ClickUp expects 0-based page index
+        $clickupPage = $page - 1;
+
+        // Build ClickUp query params
+        $queryParams = [
+            'archived' => 'false',
+            'include_closed' => 'true',
+            'subtasks' => 'true',
+            'page' => $clickupPage,     // <-- 0-based for ClickUp
+            'page_size' => $perPage,    // <-- limit results per request
+        ];
+
+        if (!empty($assigneeId)) {
+            $queryParams['assignees[]'] = $assigneeId;
+        }
+
+        // Call ClickUp
+        $response = Http::withHeaders([
+            'Authorization' => $this->apiToken,
+        ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
+
+        if (!$response->successful()) {
+            return response()->json([
+                'error'   => 'Failed to fetch tasks from ClickUp',
+                'details' => $response->json(),
+            ], $response->status());
+        }
+
+        $data = $response->json();
+        $rawTasks = $data['tasks'] ?? [];
+
+        // Even if ClickUp returned no tasks at all
+        if (empty($rawTasks)) {
+            return response()->json([
+                'success' => true,
+                'list_id' => $listId,
+                'assignee_filter' => $assigneeId ?? null,
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => 0,
+                'total_pages' => 0,
+                'count' => 0,
+                'tasks' => [],
+                'message' => 'No tasks found for this list',
+            ], 200);
+        }
+
+        $today = Carbon::now()->startOfDay();
+        $tomorrow = Carbon::now()->addDay()->startOfDay();
+
+        // Keep only: overdue, due today, or due tomorrow, and not closed
+        $filteredTasks = collect($rawTasks)->filter(function ($task) use ($today, $tomorrow) {
+
+            // must have a due_date
+            if (empty($task['due_date'])) {
+                return false;
             }
 
-            $today = Carbon::now()->startOfDay();
-            $tomorrow = Carbon::now()->addDay()->startOfDay();
+            // skip closed
+            if (($task['status']['type'] ?? null) === 'closed') {
+                return false;
+            }
 
-            // Filter tasks: only today, tomorrow, or overdue
-            $filteredTasks = collect($data['tasks'])->filter(function ($task) use ($today, $tomorrow) {
-                // Skip closed or missing due date
-                if (
-                    empty($task['due_date']) ||
-                    ($task['status']['type'] ?? null) === 'closed'
-                ) {
-                    return false;
-                }
+            // convert ms → Carbon day
+            $dueDate = Carbon::createFromTimestamp($task['due_date'] / 1000)->startOfDay();
 
-                // Convert ms → seconds for Carbon
-                $dueDate = Carbon::createFromTimestamp($task['due_date'] / 1000)->startOfDay();
+            // include if overdue OR today OR tomorrow
+            return $dueDate->equalTo($today)
+                || $dueDate->equalTo($tomorrow)
+                || $dueDate->lessThan($today);
+        })->values();
 
-                // Include if due today, tomorrow, or overdue
-                return $dueDate->equalTo($today)
-                    || $dueDate->equalTo($tomorrow)
-                    || $dueDate->lessThan($today);
-            })->values();
+        // after filtering we might have fewer than $perPage, that's fine
+        $countOnThisPage = $filteredTasks->count();
 
-            return response()->json([
-                'list_id' => $listId,
-                'tasks' => $filteredTasks,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Failed to fetch tasks for list',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
+        // ⚠️ ClickUp doesn't give us a reliable total after filters like this,
+        // so we'll approximate totals based on just this page.
+        // Frontend should treat `total_pages` as "unknown" unless you want to
+        // implement a deeper scan across pages.
+        return response()->json([
+            'success' => true,
+            'list_id' => $listId,
+            'assignee_filter' => $assigneeId ?? null,
+            'page' => $page,          // 1-based for frontend
+            'per_page' => $perPage,
+            'total' => $countOnThisPage,
+            'total_pages' => $countOnThisPage > 0 ? $page : $page - 1,
+            'count' => $countOnThisPage,
+            'tasks' => $filteredTasks,
+        ], 200);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => 'Failed to fetch tasks for list',
+            'message' => $e->getMessage(),
+        ], 500);
     }
+}
+
+
 
     /**
      * Fetch available statuses for a given ClickUp list
