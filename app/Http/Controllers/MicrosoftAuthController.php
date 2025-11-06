@@ -85,24 +85,31 @@ class MicrosoftAuthController extends Controller
      * Get user info from Microsoft Graph
      */
     private function getUserInfo($accessToken)
-    {
-        $microsoftBaseApi = env('MICROSOFT_BASE_API');
-        try {
-            $response = Http::withToken($accessToken)
-                ->get("{$microsoftBaseApi}");
+{
+    try {
+        // Always point to /me, even if MICROSOFT_BASE_API is just the base URL
+        $url = rtrim(env('MICROSOFT_BASE_API', 'https://graph.microsoft.com/v1.0'), '/');
 
-            Log::info('User Info response', ['response' => $response->json()]);
-            Log::info('status', ['status' => $response->status()]);
-
-            if ($response->successful()) {
-                return $response->json();
-            }
-
-            return null;
-        } catch (\Exception $e) {
-            return null;
+        // If the URL doesn’t already end with /me, add it
+        if (!str_ends_with($url, '/me')) {
+            $url .= '/me';
         }
+
+        $response = Http::withToken($accessToken)->get($url);
+
+        Log::info('Microsoft Graph /me response', ['response' => $response->json()]);
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        return null;
+    } catch (\Exception $e) {
+        Log::error('getUserInfo exception', ['error' => $e->getMessage()]);
+        return null;
     }
+}
+
 
     /**
      * Create user from Microsoft data and store in session

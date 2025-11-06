@@ -86,103 +86,106 @@ class MicrosoftGraphService
         try {
             $page    = max((int) $page, 1);
             $perPage = max((int) $perPage, 10);
-            $skip    = ($page - 1) * $perPage;
 
-            // ✅ 1. Fetch all messages from INBOX (not drafts)
-            $inboxResponse = Http::withToken($accessToken)->get("{$this->microsoftBaseApi}/me/mailFolders/inbox/messages", [
-                '$top'     => $perPage,
-                '$skip'    => $skip,
-                '$select'  => 'id,subject,from,receivedDateTime,isRead,conversationId,hasAttachments,webLink',
-                '$orderby' => 'receivedDateTime DESC',
-                '$filter'  => "isDraft eq false",
-            ]);
+            $collectedEmails = [];
 
-            if (! $inboxResponse->successful()) {
-                return [
-                    'success' => false,
-                    'error'   => $inboxResponse->json(),
-                    'status'  => $inboxResponse->status(),
-                ];
-            }
+            // Start with inbox messages (paged by 50 for better data filtering)
+            $batchSize = 50;
+            $skip      = 0;
+            $continue  = true;
 
-            $inboxMessages = $inboxResponse->json()['value'] ?? [];
+            while ($continue && count($collectedEmails) < $page * $perPage) {
+                $inboxResponse = Http::withToken($accessToken)->get("{$this->microsoftBaseApi}/me/mailFolders/inbox/messages", [
+                    '$top'     => $batchSize,
+                    '$skip'    => $skip,
+                    '$select'  => 'id,subject,from,receivedDateTime,isRead,conversationId,hasAttachments,webLink',
+                    '$orderby' => 'receivedDateTime DESC',
+                    '$filter'  => "isDraft eq false",
+                ]);
 
-            if (empty($inboxMessages)) {
-                return [
-                    'success' => true,
-                    'emails'  => [],
-                    'count'   => 0,
-                ];
-            }
-
-            // ✅ 2. Collect all conversation IDs from Inbox
-            $conversationIds = collect($inboxMessages)
-                ->pluck('conversationId')
-                ->filter()
-                ->unique()
-                ->values()
-                ->toArray();
-
-            // ✅ 3. Get “Sent Items” folder ID dynamically (works for any mailbox)
-            $folderRes = Http::withToken($accessToken)
-                ->get("{$this->microsoftBaseApi}/me/mailFolders?\$select=id,displayName");
-
-            $folders      = $folderRes->json()['value'] ?? [];
-            $sentFolderId = collect($folders)
-                ->firstWhere('displayName', 'Sent Items')['id'] ?? collect($folders)->firstWhere('displayName', 'Sent Mail')['id'] ?? null;
-
-            if (! $sentFolderId) {
-                Log::error('No Sent Items folder found.');
-                $sentFolderId = 'SentItems'; // fallback default
-            }
-
-            // ✅ 4. Fetch all recent sent messages to detect replied threads
-            $sentRes = Http::withToken($accessToken)
-                ->get("{$this->microsoftBaseApi}/me/mailFolders/{$sentFolderId}/messages?\$top=200&\$select=conversationId");
-
-            $sentConversations = collect($sentRes->json()['value'] ?? [])
-                ->pluck('conversationId')
-                ->filter()
-                ->unique()
-                ->toArray();
-
-            // ✅ 5. Compare Inbox vs SentItems → build unreplied/unread list
-            $emails = [];
-            foreach ($inboxMessages as $msg) {
-                $isRead   = $msg['isRead'] ?? false;
-                $convId   = $msg['conversationId'] ?? '';
-                $hasReply = in_array($convId, $sentConversations, true);
-
-                $status = [];
-                if (! $hasReply) {
-                    $status[] = 'unreplied';
-                }
-
-                if (! $isRead) {
-                    $status[] = 'unread';
-                }
-
-                if (! empty($status)) {
-                    $emails[] = [
-                        'id'               => $msg['id'],
-                        'subject'          => $msg['subject'] ?: '(No Subject)',
-                        'from'             => $msg['from']['emailAddress']['address'] ?? 'Unknown',
-                        'fromName'         => $msg['from']['emailAddress']['name'] ?? 'Unknown',
-                        'receivedDateTime' => $msg['receivedDateTime'],
-                        'isRead'           => $isRead,
-                        'hasAttachments'   => $msg['hasAttachments'] ?? false,
-                        'status'           => implode(', ', $status),
-                        'webLink'          => $msg['webLink'] ?? "https://outlook.live.com/mail/0/inbox/id/{$msg['id']}",
+                if (! $inboxResponse->successful()) {
+                    return [
+                        'success' => false,
+                        'error'   => $inboxResponse->json(),
+                        'status'  => $inboxResponse->status(),
                     ];
                 }
+
+                $inboxMessages = $inboxResponse->json()['value'] ?? [];
+                if (empty($inboxMessages)) {
+                    break;
+                }
+
+                // Fetch Sent Items conversations once (cached outside loop)
+                if (! isset($sentConversations)) {
+                    $folderRes = Http::withToken($accessToken)
+                        ->get("{$this->microsoftBaseApi}/me/mailFolders?\$select=id,displayName");
+
+                    $folders      = $folderRes->json()['value'] ?? [];
+                    $sentFolderId = collect($folders)
+                        ->firstWhere('displayName', 'Sent Items')['id'] ?? collect($folders)->firstWhere('displayName', 'Sent Mail')['id'] ?? null;
+
+                    $sentFolderId = $sentFolderId ?: 'SentItems';
+
+                    $sentRes = Http::withToken($accessToken)
+                        ->get("{$this->microsoftBaseApi}/me/mailFolders/{$sentFolderId}/messages?\$top=200&\$select=conversationId");
+
+                    $sentConversations = collect($sentRes->json()['value'] ?? [])
+                        ->pluck('conversationId')
+                        ->filter()
+                        ->unique()
+                        ->toArray();
+                }
+
+                // Filter unreplied/unread
+                foreach ($inboxMessages as $msg) {
+                    $isRead   = $msg['isRead'] ?? false;
+                    $convId   = $msg['conversationId'] ?? '';
+                    $hasReply = in_array($convId, $sentConversations, true);
+
+                    $status = [];
+                    if (! $hasReply) {
+                        $status[] = 'unreplied';
+                    }
+
+                    if (! $isRead) {
+                        $status[] = 'unread';
+                    }
+
+                    if (! empty($status)) {
+                        $collectedEmails[] = [
+                            'id'               => $msg['id'],
+                            'subject'          => $msg['subject'] ?: '(No Subject)',
+                            'from'             => $msg['from']['emailAddress']['address'] ?? 'Unknown',
+                            'fromName'         => $msg['from']['emailAddress']['name'] ?? 'Unknown',
+                            'receivedDateTime' => $msg['receivedDateTime'],
+                            'isRead'           => $isRead,
+                            'hasAttachments'   => $msg['hasAttachments'] ?? false,
+                            'status'           => implode(', ', $status),
+                            'webLink'          => $msg['webLink'] ?? "https://outlook.live.com/mail/0/inbox/id/{$msg['id']}",
+                        ];
+                    }
+                }
+
+                $skip += $batchSize;
+                if (count($inboxMessages) < $batchSize) {
+                    $continue = false;
+                }
+
             }
+
+            // ✅ Apply pagination AFTER filtering
+            $offset      = ($page - 1) * $perPage;
+            $pagedEmails = array_slice($collectedEmails, $offset, $perPage);
 
             return [
                 'success'  => true,
                 'page'     => $page,
                 'per_page' => $perPage,
-                'count'    => count($emails),
-                'emails'   => $emails,
+                'count'    => count($pagedEmails),
+                'total'    => count($collectedEmails),
+                'emails'   => $pagedEmails,
+                'has_next' => count($collectedEmails) > $page * $perPage,
             ];
 
         } catch (\Exception $e) {
