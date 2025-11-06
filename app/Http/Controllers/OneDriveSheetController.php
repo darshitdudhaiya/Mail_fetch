@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\MicrosoftGraphService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+
 
 class OneDriveSheetController extends Controller
 {
@@ -17,10 +19,7 @@ class OneDriveSheetController extends Controller
         $this->graphService = $graphService;
     }
 
-    /**
-     * Downloads Excel file from OneDrive and returns it to the frontend.
-     */
-    public function downloadExcelFile(Request $request)
+    public function getSheetData(Request $request)
     {
         try {
             $user = User::fromSession();
@@ -28,38 +27,50 @@ class OneDriveSheetController extends Controller
                 return response()->json(['success' => false, 'error' => 'User not authenticated'], 401);
             }
 
+
+
             $accessToken = decrypt($user->microsoft_access_token);
             $refreshToken = decrypt($user->microsoft_refresh_token);
+            $expiresAt = Carbon::parse($user->microsoft_token_expires_at);
 
-            // Refresh token if expired
-            $accessToken = $this->graphService->getValidAccessToken(
-                $user->id,
-                $accessToken,
-                $refreshToken
-            );
 
-            if (!$accessToken) {
-                return response()->json(['success' => false, 'error' => 'Token expired, reauth required'], 401);
+
+
+            if (Carbon::now()->greaterThan($expiresAt)) {
+                $accessToken = $this->graphService->getValidAccessToken($user->id, $accessToken, $refreshToken);
+                if (!$accessToken) {
+                    return response()->json(['success' => false, 'error' => 'Token expired, reauth required'], 401);
+                }
+
             }
 
-            $microsoftBaseApi = env('MICROSOFT_BASE_API');
-            $filePath = env('MICROSOFT_EXCEL_SHEET_PATH');
+            $filePath = '/Documents/DocSync.xlsx'; // adjust this based on your actual OneDrive folder
+            $sheetName = 'Sheet1';
 
-            // Fetch Excel file binary from OneDrive
-            $fileUrl = "{$microsoftBaseApi}/drive/root:{$filePath}:/content";
-            $response = Http::withToken($accessToken)->get($fileUrl);
+            // ✅ Fetch used range (dynamic data)
+            $graphUrl = "https://graph.microsoft.com/v1.0/me/drive/root:{$filePath}:/workbook/worksheets('{$sheetName}')/usedRange";
+
+            $response = Http::withToken($accessToken)->get($graphUrl);
 
             if (!$response->successful()) {
-                Log::error('Failed to fetch Excel file', ['body' => $response->body()]);
-                return response()->json(['success' => false, 'error' => 'Failed to fetch Excel file'], 500);
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Failed to fetch sheet data',
+                    'details' => $response->json(),
+                ], 500);
             }
 
-            return response($response->body(), 200)
-                ->header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                ->header('Content-Disposition', 'inline; filename="data.xlsx"');
+
+
+            return response()->json([
+                'success' => true,
+                'values' => $response->json()['values'] ?? [],
+            ]);
         } catch (\Exception $e) {
-            Log::error('Excel fetch error', ['message' => $e->getMessage()]);
+            Log::error('Sheet fetch error', ['message' => $e->getMessage()]);
             return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+
+
         }
     }
 }
