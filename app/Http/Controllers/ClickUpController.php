@@ -17,15 +17,23 @@ class ClickUpController extends Controller
         $this->clickupBaseApi = env('CLICKUP_BASE_API');
     }
 
+/**
+ * Get the ClickUp API token from header or fallback to .env
+ */
+    private function getTokenFromRequest(Request $request)
+    {
+        return $request->header('ClickUp-Token') ?? $request->query('clickup_token') ?? $this->apiToken;
+    }
+
     /**
      * Fetch all teams from ClickUp
      */
-    public function getUser()
+    public function getUser(Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/user");
 
             return response()->json($response->json(), $response->status());
@@ -40,12 +48,12 @@ class ClickUpController extends Controller
     /**
      * Fetch all teams from ClickUp
      */
-    public function getTeams()
+    public function getTeams(Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/team");
 
             return response()->json($response->json(), $response->status());
@@ -60,12 +68,12 @@ class ClickUpController extends Controller
     /**
      * Fetch all workspaces (teams) from ClickUp
      */
-    public function getWorkspaces()
+    public function getWorkspaces(Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/team");
 
             $data = $response->json();
@@ -96,12 +104,12 @@ class ClickUpController extends Controller
     /**
      * Fetch workspace (team) members from ClickUp
      */
-    public function getWorkspaceMembers($teamId)
+    public function getWorkspaceMembers($teamId, Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/team/{$teamId}");
 
             $data = $response->json();
@@ -134,12 +142,12 @@ class ClickUpController extends Controller
     /**
      * Fetch all spaces for a given ClickUp workspace (team)
      */
-    public function getSpacesForWorkspace($teamId)
+    public function getSpacesForWorkspace($teamId, Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/team/{$teamId}/space", [
                 'archived' => 'false',
             ]);
@@ -173,18 +181,18 @@ class ClickUpController extends Controller
     /**
      * Fetch all lists for a given ClickUp space (both inside folders and direct)
      */
-    public function getListsForSpace($spaceId)
+    public function getListsForSpace($spaceId, Request $request)
     {
         try {
             // Fetch all folders and lists for the space
             $foldersResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/folder", [
                 'archived' => 'false',
             ]);
 
             $listsResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/list", [
                 'archived' => 'false',
             ]);
@@ -202,7 +210,7 @@ class ClickUpController extends Controller
 
                             // Fetch tasks count from list endpoint
                             $taskResponse = Http::withHeaders([
-                                'Authorization' => $this->apiToken,
+                                'Authorization' => $this->getTokenFromRequest($request),
                             ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                                 'archived' => 'false',
                                 'page'     => 0,
@@ -226,7 +234,7 @@ class ClickUpController extends Controller
                 foreach ($listsData['lists'] as $list) {
 
                     $taskResponse = Http::withHeaders([
-                        'Authorization' => $this->apiToken,
+                        'Authorization' => $this->getTokenFromRequest($request),
                     ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                         'archived' => 'false',
                         'page'     => 0,
@@ -290,7 +298,7 @@ class ClickUpController extends Controller
 
             // Call ClickUp
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
 
             if (! $response->successful()) {
@@ -374,12 +382,12 @@ class ClickUpController extends Controller
     /**
      * Fetch available statuses for a given ClickUp list
      */
-    public function getListStatuses($listId)
+    public function getListStatuses($listId, Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/list/{$listId}");
 
             $data = $response->json();
@@ -411,12 +419,12 @@ class ClickUpController extends Controller
     /**
      * Fetch the last comment for a specific ClickUp task
      */
-    public function getLastComment($taskId)
+    public function getLastComment($taskId, Request $request)
     {
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/task/{$taskId}/comment");
 
             $data = $response->json();
@@ -453,7 +461,7 @@ class ClickUpController extends Controller
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $validated['status'],
@@ -510,7 +518,7 @@ class ClickUpController extends Controller
 
             // ✅ Fetch from ClickUp API
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/list/{$listId}/task", $queryParams);
 
             if (! $response->successful()) {
@@ -570,12 +578,12 @@ class ClickUpController extends Controller
     /**
      * Close a ClickUp task (set its status to closed)
      */
-    public function closeTask($taskId)
+    public function closeTask($taskId, Request $request)
     {
 
         try {
             $listIdResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/task/{$taskId}");
 
             $taskData = $listIdResponse->json();
@@ -590,7 +598,7 @@ class ClickUpController extends Controller
             $listId = $taskData['list']['id'];
 
             $listResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/list/{$listId}");
 
             $listData = $listResponse->json();
@@ -611,7 +619,7 @@ class ClickUpController extends Controller
             }
 
             $updateResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $closedStatus,
@@ -653,7 +661,7 @@ class ClickUpController extends Controller
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->post("{$this->clickupBaseApi}/task/{$taskId}/comment", [
                 'comment_text' => $validated['comment_text'],
@@ -710,7 +718,7 @@ class ClickUpController extends Controller
             }
 
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->post("{$this->clickupBaseApi}/list/{$listId}/task", $payload);
 
@@ -739,12 +747,12 @@ class ClickUpController extends Controller
     /**
      * Fetch all lists (folders + direct) and their tasks for a given space
      */
-    public function getAllListsData($spaceId)
+    public function getAllListsData($spaceId, Request $request)
     {
         try {
             // Fetch all folders in space
             $foldersResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/folder", [
                 'archived' => 'false',
             ]);
@@ -753,7 +761,7 @@ class ClickUpController extends Controller
 
             // Fetch lists directly under space (not in folder)
             $listsResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/list", [
                 'archived' => 'false',
             ]);
@@ -800,7 +808,7 @@ class ClickUpController extends Controller
 
             foreach ($allLists as $list) {
                 $tasksResponse = Http::withHeaders([
-                    'Authorization' => $this->apiToken,
+                    'Authorization' => $this->getTokenFromRequest($request),
                 ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                     'archived'       => 'false',
                     'include_closed' => 'true',
@@ -846,18 +854,18 @@ class ClickUpController extends Controller
     /**
      * Fetch folders and lists for a given ClickUp space
      */
-    public function getLists($spaceId)
+    public function getLists($spaceId, Request $request)
     {
 
         try {
             $foldersResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/folder", [
                 'archived' => 'false',
             ]);
 
             $listsResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/space/{$spaceId}/list", [
                 'archived' => 'false',
             ]);
@@ -905,12 +913,12 @@ class ClickUpController extends Controller
     /**
      * Reopen a ClickUp task (change status from closed to an open status)
      */
-    public function reopenTask($taskId)
+    public function reopenTask($taskId, Request $request)
     {
 
         try {
             $taskResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/task/{$taskId}");
 
             $taskData = $taskResponse->json();
@@ -925,7 +933,7 @@ class ClickUpController extends Controller
             $listId = $taskData['list']['id'];
 
             $listResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
             ])->get("{$this->clickupBaseApi}/list/{$listId}");
 
             $listData = $listResponse->json();
@@ -946,7 +954,7 @@ class ClickUpController extends Controller
             }
 
             $updateResponse = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'status' => $openStatus['status'],
@@ -988,7 +996,7 @@ class ClickUpController extends Controller
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $this->apiToken,
+                'Authorization' => $this->getTokenFromRequest($request),
                 'Content-Type'  => 'application/json',
             ])->put("{$this->clickupBaseApi}/task/{$taskId}", [
                 'due_date' => $validated['due_date'],
