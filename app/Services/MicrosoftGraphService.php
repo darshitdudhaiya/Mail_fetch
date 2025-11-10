@@ -88,9 +88,9 @@ class MicrosoftGraphService
             $perPage = max((int) $perPage, 10);
 
             if (! $fromDate) {
-                $fromDate = now()->subDays(7)->toIso8601String();
+                $fromDate = now()->subDays(7)->startOfDay()->toIso8601String();
             } else {
-                $fromDate = \Carbon\Carbon::parse($fromDate)->toIso8601String();
+                $fromDate = \Carbon\Carbon::parse($fromDate)->startOfDay()->toIso8601String();
             }
 
             if ($toDate) {
