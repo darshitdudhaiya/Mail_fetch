@@ -180,16 +180,16 @@ class MicrosoftAuthController extends Controller
             // ✅ Pagination + date filters
             $page = $request->query('page', 1);
             $perPage = $request->query('per_page', 10);
-            $startDate = $request->query('startDate');
-            $endDate = $request->query('endDate');
+            $fromDate = $request->query('startDate');
+            $toDate = $request->query('endDate');
 
             // ✅ Correct argument order
             $result = $this->graphService->getUnrepliedEmails(
                 $accessToken,
                 $page,
                 $perPage,
-                $startDate,
-                $endDate
+                $fromDate,
+                $toDate
             );
 
             return response()->json($result);
