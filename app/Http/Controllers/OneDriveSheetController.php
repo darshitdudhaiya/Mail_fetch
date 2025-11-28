@@ -44,8 +44,8 @@ class OneDriveSheetController extends Controller
 
             }
 
-            $filePath = '/Documents/DocSync.xlsx'; // adjust this based on your actual OneDrive folder
-            $sheetName = 'Sheet1';
+            $filePath = '/Documents/DocSync.xlsm'; // adjust this based on your actual OneDrive folder
+            $sheetName = 'Dashboard'; // adjust this based on your actual sheet name
 
             // ✅ Fetch used range (dynamic data)
             $graphUrl = "https://graph.microsoft.com/v1.0/me/drive/root:{$filePath}:/workbook/worksheets('{$sheetName}')/usedRange";

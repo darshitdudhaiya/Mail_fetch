@@ -17,9 +17,9 @@ class ClickUpController extends Controller
         $this->clickupBaseApi = env('CLICKUP_BASE_API');
     }
 
-/**
- * Get the ClickUp API token from header or fallback to .env
- */
+    /**
+     * Get the ClickUp API token from header or fallback to .env
+     */
     private function getTokenFromRequest(Request $request)
     {
         return $request->header('ClickUp-Token') ?? $request->query('clickup_token') ?? $this->apiToken;
@@ -370,7 +370,6 @@ class ClickUpController extends Controller
                 'count'           => $countOnThisPage,
                 'tasks'           => $filteredTasks,
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'error'   => 'Failed to fetch tasks for list',
