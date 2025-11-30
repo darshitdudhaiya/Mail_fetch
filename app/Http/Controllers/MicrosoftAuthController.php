@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Models\User;
@@ -21,27 +20,27 @@ class MicrosoftAuthController extends Controller
 
     public function handleToken(Request $request)
     {
-        $code = $request->input('code');
+        $code         = $request->input('code');
         $codeVerifier = $request->input('code_verifier');
 
-        $clientId = env('MICROSOFT_CLIENT_ID');
+        $clientId     = env('MICROSOFT_CLIENT_ID');
         $clientSecret = env('MICROSOFT_CLIENT_SECRET');
-        $redirectUri = env('MICROSOFT_REDIRECT_URI');
-        $pesmissons = env('MICROSOFT_PERMISSIONS');
+        $redirectUri  = env('MICROSOFT_REDIRECT_URI');
+        $permissions  = env('MICROSOFT_PERMISSIONS');
 
         $microsoftLoginBaseApi = "https://login.microsoftonline.com";
 
         try {
             // Exchange authorization code for access token
             $response = Http::asForm()->post(
-                "{$microsoftLoginBaseApi}/consumers/oauth2/v2.0/token",
+                "{$microsoftLoginBaseApi}/common/oauth2/v2.0/token",
                 [
-                    'client_id' => $clientId,
+                    'client_id'     => $clientId,
                     'client_secret' => $clientSecret,
-                    'scope' => $pesmissons,
-                    'code' => $code,
-                    'redirect_uri' => $redirectUri,
-                    'grant_type' => 'authorization_code',
+                    'scope'         => $permissions,
+                    'code'          => $code,
+                    'redirect_uri'  => $redirectUri,
+                    'grant_type'    => 'authorization_code',
                     'code_verifier' => $codeVerifier,
                 ]
             );
@@ -56,27 +55,27 @@ class MicrosoftAuthController extends Controller
                     $user = $this->createUserFromMicrosoft($userInfo, $data);
 
                     return response()->json([
-                        'success' => true,
-                        'access_token' => $data['access_token'],
+                        'success'       => true,
+                        'access_token'  => $data['access_token'],
                         'refresh_token' => $data['refresh_token'] ?? null,
-                        'expires_in' => $data['expires_in'] ?? null,
-                        'user' => [
-                            'id' => $user->id,
+                        'expires_in'    => $data['expires_in'] ?? null,
+                        'user'          => [
+                            'id'    => $user->id,
                             'email' => $user->email,
-                            'name' => $user->name,
-                        ]
+                            'name'  => $user->name,
+                        ],
                     ]);
                 }
             }
 
             return response()->json([
                 'success' => false,
-                'error' => $response->json(),
+                'error'   => $response->json(),
             ], 400);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -85,31 +84,30 @@ class MicrosoftAuthController extends Controller
      * Get user info from Microsoft Graph
      */
     private function getUserInfo($accessToken)
-{
-    try {
-        // Always point to /me, even if MICROSOFT_BASE_API is just the base URL
-        $url = rtrim(env('MICROSOFT_BASE_API', 'https://graph.microsoft.com/v1.0'), '/');
+    {
+        try {
+            // Always point to /me, even if MICROSOFT_BASE_API is just the base URL
+            $url = rtrim(env('MICROSOFT_BASE_API', 'https://graph.microsoft.com/v1.0'), '/');
 
-        // If the URL doesn’t already end with /me, add it
-        if (!str_ends_with($url, '/me')) {
-            $url .= '/me';
+            // If the URL doesn’t already end with /me, add it
+            if (! str_ends_with($url, '/me')) {
+                $url .= '/me';
+            }
+
+            $response = Http::withToken($accessToken)->get($url);
+
+            Log::info('Microsoft Graph /me response', ['response' => $response->json()]);
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('getUserInfo exception', ['error' => $e->getMessage()]);
+            return null;
         }
-
-        $response = Http::withToken($accessToken)->get($url);
-
-        Log::info('Microsoft Graph /me response', ['response' => $response->json()]);
-
-        if ($response->successful()) {
-            return $response->json();
-        }
-
-        return null;
-    } catch (\Exception $e) {
-        Log::error('getUserInfo exception', ['error' => $e->getMessage()]);
-        return null;
     }
-}
-
 
     /**
      * Create user from Microsoft data and store in session
@@ -122,12 +120,13 @@ class MicrosoftAuthController extends Controller
         $userId = Str::uuid()->toString();
 
         $userData = [
-            'id' => $userId,
-            'name' => $userInfo['displayName'],
-            'email' => $userInfo['mail'] ?? $userInfo['userPrincipalName'],
-            'microsoft_email' => $userInfo['mail'] ?? $userInfo['userPrincipalName'],
-            'microsoft_access_token' => encrypt($tokenData['access_token']),
-            'microsoft_refresh_token' => encrypt($tokenData['refresh_token']),
+            'id'                         => $userId,
+            'name'                       => $userInfo['displayName'] ?? null,
+            'email'                      => $userInfo['mail'] ?? $userInfo['userPrincipalName'] ?? null,
+            'microsoft_email'            => $userInfo['mail'] ?? $userInfo['userPrincipalName'] ?? null,
+            'microsoft_graph_user_id'    => $userInfo['id'], // <- required for workbook APIs
+            'microsoft_access_token'     => encrypt($tokenData['access_token']),
+            'microsoft_refresh_token'    => encrypt($tokenData['refresh_token']),
             'microsoft_token_expires_at' => $expiresAt->toDateTimeString(),
         ];
 
@@ -145,16 +144,16 @@ class MicrosoftAuthController extends Controller
         try {
             $user = User::fromSession();
 
-            if (!$user) {
+            if (! $user) {
                 return response()->json([
-                    'success' => false,
-                    'error' => 'User not authenticated',
-                    'reauth_required' => true
+                    'success'         => false,
+                    'error'           => 'User not authenticated',
+                    'reauth_required' => true,
                 ], 401);
             }
 
             // Decrypt tokens
-            $accessToken = decrypt($user->microsoft_access_token);
+            $accessToken  = decrypt($user->microsoft_access_token);
             $refreshToken = decrypt($user->microsoft_refresh_token);
 
             // Check if token is expired
@@ -166,11 +165,11 @@ class MicrosoftAuthController extends Controller
                     $refreshToken
                 );
 
-                if (!$newToken) {
+                if (! $newToken) {
                     return response()->json([
-                        'success' => false,
-                        'error' => 'Failed to refresh token. Please re-authenticate.',
-                        'reauth_required' => true
+                        'success'         => false,
+                        'error'           => 'Failed to refresh token. Please re-authenticate.',
+                        'reauth_required' => true,
                     ], 401);
                 }
 
@@ -178,10 +177,10 @@ class MicrosoftAuthController extends Controller
             }
 
             // ✅ Pagination + date filters
-            $page = $request->query('page', 1);
-            $perPage = $request->query('per_page', 10);
+            $page     = $request->query('page', 1);
+            $perPage  = $request->query('per_page', 10);
             $fromDate = $request->query('startDate');
-            $toDate = $request->query('endDate');
+            $toDate   = $request->query('endDate');
 
             // ✅ Correct argument order
             $result = $this->graphService->getUnrepliedEmails(
@@ -196,7 +195,7 @@ class MicrosoftAuthController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -210,15 +209,15 @@ class MicrosoftAuthController extends Controller
             // Get user from session
             $user = User::fromSession();
 
-            if (!$user) {
+            if (! $user) {
                 return response()->json([
-                    'success' => false,
-                    'error' => 'User not authenticated',
-                    'reauth_required' => true
+                    'success'         => false,
+                    'error'           => 'User not authenticated',
+                    'reauth_required' => true,
                 ], 401);
             }
 
-            $accessToken = decrypt($user->microsoft_access_token);
+            $accessToken  = decrypt($user->microsoft_access_token);
             $refreshToken = decrypt($user->microsoft_refresh_token);
 
             // Check if token is expired and refresh if needed
@@ -230,11 +229,11 @@ class MicrosoftAuthController extends Controller
                     $refreshToken
                 );
 
-                if (!$accessToken) {
+                if (! $accessToken) {
                     return response()->json([
-                        'success' => false,
-                        'error' => 'Failed to refresh token',
-                        'reauth_required' => true
+                        'success'         => false,
+                        'error'           => 'Failed to refresh token',
+                        'reauth_required' => true,
                     ], 401);
                 }
             }
@@ -245,7 +244,7 @@ class MicrosoftAuthController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -259,7 +258,7 @@ class MicrosoftAuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Logged out successfully'
+            'message' => 'Logged out successfully',
         ]);
     }
 
@@ -270,20 +269,20 @@ class MicrosoftAuthController extends Controller
     {
         $user = User::fromSession();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'success' => false,
-                'error' => 'Not authenticated'
+                'error'   => 'Not authenticated',
             ], 401);
         }
 
         return response()->json([
             'success' => true,
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
+            'user'    => [
+                'id'    => $user->id,
+                'name'  => $user->name,
                 'email' => $user->email,
-            ]
+            ],
         ]);
     }
 }

@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -13,6 +12,7 @@ class User extends Authenticatable
     public $microsoft_access_token;
     public $microsoft_refresh_token;
     public $microsoft_token_expires_at;
+    public $microsoft_graph_user_id;
 
     /**
      * Construct a new user object from an array of attributes.
@@ -33,8 +33,17 @@ class User extends Authenticatable
     public static function storeInSession(array $userData): void
     {
         session([
-            'microsoft_azure_user' => $userData,
-            'microsoft_azure_user_id' => $userData['id'] ?? null,
+            'microsoft_azure_user'    => [
+                'id'                         => $userData['id'],
+                'name'                       => $userData['name'],
+                'email'                      => $userData['email'],
+                'microsoft_email'            => $userData['microsoft_email'],
+                'microsoft_graph_user_id'    => $userData['microsoft_graph_user_id'], 
+                'microsoft_access_token'     => $userData['microsoft_access_token'],
+                'microsoft_refresh_token'    => $userData['microsoft_refresh_token'],
+                'microsoft_token_expires_at' => $userData['microsoft_token_expires_at'],
+            ],
+            'microsoft_azure_user_id' => $userData['id'],
         ]);
     }
 
@@ -55,10 +64,24 @@ class User extends Authenticatable
      *
      * @return void
      */
-    public function updateSession(): void
-    {
-        session(['microsoft_azure_user' => (array) $this]);
-    }
+   public function updateSession(): void
+{
+    session([
+        'microsoft_azure_user' => [
+            'id'                         => $this->id,
+            'name'                       => $this->name,
+            'email'                      => $this->email,
+            'microsoft_email'            => $this->microsoft_email,
+            'microsoft_graph_user_id'    => $this->microsoft_graph_user_id ?? null,
+            // assume the tokens already encrypted when set on $this
+            'microsoft_access_token'     => $this->microsoft_access_token,
+            'microsoft_refresh_token'    => $this->microsoft_refresh_token,
+            'microsoft_token_expires_at' => $this->microsoft_token_expires_at,
+        ],
+    ]);
+}
+
+
 
     /**
      * Remove user data from the session (logout).

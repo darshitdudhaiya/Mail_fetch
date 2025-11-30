@@ -27,15 +27,18 @@ class MicrosoftGraphService
      */
     public function refreshAccessToken($refreshToken)
     {
+
+        $permissions = env('MICROSOFT_PERMISSIONS');
+
         try {
             $response = Http::asForm()->post(
-                'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+                'https://login.microsoftonline.com/common/oauth2/v2.0/token',
                 [
                     'client_id'     => $this->clientId,
                     'client_secret' => $this->clientSecret,
                     'grant_type'    => 'refresh_token',
                     'refresh_token' => $refreshToken,
-                    'scope'         => 'https://graph.microsoft.com/user.read https://graph.microsoft.com/mail.read offline_access',
+                    'scope'         => $permissions,
                 ]
             );
 
@@ -57,10 +60,10 @@ class MicrosoftGraphService
     public function getValidAccessToken($userId, $currentToken, $refreshToken)
     {
         // Check if token is cached and valid
-        $cachedToken = Cache::get("user_{$userId}_access_token");
-        if ($cachedToken) {
-            return $cachedToken;
-        }
+        // $cachedToken = Cache::get("user_{$userId}_access_token");
+        // if ($cachedToken) {
+        //     return $cachedToken;
+        // }
 
         // Try to refresh the token
         $tokenData = $this->refreshAccessToken($refreshToken);
@@ -96,7 +99,7 @@ class MicrosoftGraphService
             if ($toDate) {
                 $toDate = \Carbon\Carbon::parse($toDate)->endOfDay()->toIso8601String();
             } else {
-                $toDate = now()->endOfDay()->toIso8601String(); 
+                $toDate = now()->endOfDay()->toIso8601String();
             }
 
             $filterParts = ["isDraft eq false", "receivedDateTime ge {$fromDate}"];
@@ -458,18 +461,21 @@ class MicrosoftGraphService
      * Update refresh token in session
      */
     private function updateRefreshTokenInSession($userId, $tokenData)
-    {
-        $user = User::fromSession();
+{
+    $user = User::fromSession();
 
-        if ($user && $user->id === $userId) {
-            $expiresAt = Carbon::now()->addSeconds($tokenData['expires_in'] ?? 3600);
+    if ($user && $user->id === $userId) {
+        $expiresAt = Carbon::now()->addSeconds($tokenData['expires_in'] ?? 3600);
 
-            $user->microsoft_access_token     = encrypt($tokenData['access_token']);
-            $user->microsoft_refresh_token    = encrypt($tokenData['refresh_token']);
-            $user->microsoft_token_expires_at = $expiresAt->toDateTimeString();
+        // encrypt here and set on $user
+        $user->microsoft_access_token     = encrypt($tokenData['access_token']);
+        $user->microsoft_refresh_token    = encrypt($tokenData['refresh_token'] ?? $user->getDecryptedRefreshToken());
+        $user->microsoft_token_expires_at = $expiresAt->toDateTimeString();
 
-            // Update session
-            $user->updateSession();
-        }
+        // persist to session without double-encrypting (updateSession expects already-encrypted)
+        $user->updateSession();
     }
+}
+
+
 }
