@@ -21,7 +21,7 @@ class OneDriveSheetController extends Controller
     {
         try {
             $user = User::fromSession();
-            if (! $user) {
+            if (!$user) {
                 Log::warning('Sheet data access attempt without authenticated user.');
                 return response()->json(['success' => false, 'error' => 'User not authenticated'], 401);
             }
@@ -29,62 +29,68 @@ class OneDriveSheetController extends Controller
             try {
                 $accessToken = decrypt($user->microsoft_access_token);
             } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-                Log::error('Failed to decrypt access token for user: ' . $user->id, ['error' => $e->getMessage()]);
-                return response()->json(['success' => false, 'error' => 'Invalid authentication token. Please re-authenticate.'], 401);
+                Log::error("Failed to decrypt access token for user {$user->id}");
+                return response()->json(['success' => false, 'error' => 'Invalid authentication token'], 401);
             }
 
             if (empty($accessToken)) {
-                Log::error("Access token empty for user {$user->id}");
-                return response()->json(['success' => false, 'error' => 'Authentication token is missing or invalid.'], 401);
+                return response()->json(['success' => false, 'error' => 'Missing access token'], 401);
             }
 
-            // Refresh expired token
+            // Check token expiration
             $refreshToken = decrypt($user->microsoft_refresh_token);
-            $expiresAt    = Carbon::parse($user->microsoft_token_expires_at);
-
-            Log::info("Token expiry check for user {$user->id}", [
-                'access_token'  => $accessToken,
-                'refresh_token' => $refreshToken,
-                'expires_at'    => $expiresAt->toDateTimeString(),
-            ]);
+            $expiresAt = Carbon::parse($user->microsoft_token_expires_at);
 
             if (Carbon::now()->greaterThan($expiresAt)) {
                 Log::info("Refreshing expired token for user {$user->id}");
-                $newAccessToken = $this->graphService->getValidAccessToken($user->id, $accessToken, $refreshToken);
 
-                if (! $newAccessToken) {
-                    return response()->json(['success' => false, 'error' => 'Token expired. Re-authenticate.'], 401);
+                $newAccessToken = $this->graphService->getValidAccessToken(
+                    $user->id,
+                    $accessToken,
+                    $refreshToken
+                );
+
+                if (!$newAccessToken) {
+                    return response()->json(['success' => false, 'error' => 'Token expired, re-authenticate'], 401);
                 }
 
                 $accessToken = $newAccessToken;
             }
 
-                                                                   
-            $filePath  = env("DOCSYNC_MISCROSOFT_SHEET_FILE_PATH"); 
+            // ──────────────────────────────────────
+            // ENV PATHS
+            // ──────────────────────────────────────
+            $filePath  = env("DOCSYNC_MISCROSOFT_SHEET_FILE_PATH");
             $sheetName = env("DOCSYNC_MISCROSOFT_SHEET_NAME");
             $tableName = env("DOCSYNC_MICROSOFT_TABLE_NAME");
+            $searchName = basename($filePath);
 
-            
+            // ──────────────────────────────────────
+            // 1. SEARCH IN USER ROOT
+            // ──────────────────────────────────────
             $rootChildren = Http::withToken($accessToken)
                 ->get("https://graph.microsoft.com/v1.0/me/drive/root/children");
 
             if ($rootChildren->failed()) {
-                Log::error("Unable to fetch root children", ['body' => $rootChildren->body()]);
                 return response()->json(['success' => false, 'error' => 'Unable to access OneDrive root'], 500);
             }
 
-            $items      = $rootChildren->json()['value'] ?? [];
-            $fileId     = null;
-            $searchName = basename($filePath);
+            $items = $rootChildren->json()['value'] ?? [];
+            $fileId = null;
+            $driveId = null;
 
             foreach ($items as $item) {
                 if (($item['name'] ?? '') === $searchName) {
                     $fileId = $item['id'];
+                    $driveId = $item['parentReference']['driveId'] ?? null;
                     break;
                 }
             }
 
-            if (! $fileId) {
+            // ──────────────────────────────────────
+            // 2. SEARCH IN DOCUMENTS FOLDER
+            // ──────────────────────────────────────
+            if (!$fileId) {
                 foreach ($items as $item) {
                     if (($item['name'] ?? '') === 'Documents') {
                         $documentsId = $item['id'];
@@ -92,102 +98,98 @@ class OneDriveSheetController extends Controller
                         $docsChildren = Http::withToken($accessToken)
                             ->get("https://graph.microsoft.com/v1.0/me/drive/items/{$documentsId}/children");
 
-                        if ($docsChildren->failed()) {
-                            Log::error("Unable to fetch Documents folder");
-                            return response()->json(['success' => false, 'error' => 'Unable to access Documents folder'], 500);
-                        }
-
-                        foreach ($docsChildren->json()['value'] as $docItem) {
-                            if ($docItem['name'] === $searchName) {
-                                $fileId = $docItem['id'];
-                                break 2;
+                        if ($docsChildren->successful()) {
+                            foreach ($docsChildren->json()['value'] as $docItem) {
+                                if ($docItem['name'] === $searchName) {
+                                    $fileId = $docItem['id'];
+                                    $driveId = $docItem['parentReference']['driveId'] ?? null;
+                                    break 2;
+                                }
                             }
                         }
                     }
                 }
             }
 
-            if (! $fileId) {
-                return response()->json(['success' => false, 'error' => "File {$searchName} not found on OneDrive"], 404);
+            // ──────────────────────────────────────
+            // 3. SEARCH IN SHARED WITH ME
+            // ──────────────────────────────────────
+            if (!$fileId) {
+                Log::info("Searching 'sharedWithMe' for {$searchName}");
+
+                $sharedResp = Http::withToken($accessToken)
+                    ->get("https://graph.microsoft.com/v1.0/me/drive/sharedWithMe");
+
+                if ($sharedResp->successful()) {
+                    foreach ($sharedResp->json()['value'] ?? [] as $sharedItem) {
+                        if (($sharedItem['name'] ?? '') === $searchName) {
+
+                            // THIS IS THE REAL FILE INFO
+                            $remote = $sharedItem['remoteItem'];
+
+                            $fileId = $remote['id'];
+                            $driveId = $remote['parentReference']['driveId'];
+
+                            Log::info("File found in sharedWithMe", [
+                                'fileId' => $fileId,
+                                'driveId' => $driveId
+                            ]);
+
+                            break;
+                        }
+                    }
+                }
             }
 
-            Log::info("File located", ['fileId' => $fileId]);
-
-
-            $graphUserId = $user->microsoft_graph_user_id ?? ($user->microsoft_email ?? null);
-            if (! $graphUserId) {
-                Log::error("Graph user id missing in session for user {$user->id}");
-                return response()->json(['success' => false, 'error' => 'Server misconfiguration: graph user id missing'], 500);
+            if (!$fileId) {
+                return response()->json(['success' => false, 'error' => "File {$searchName} not found"], 404);
             }
 
-            // Use the users/{id} path which is more reliable for workbook APIs
-            $baseUrl = "https://graph.microsoft.com/v1.0/users/{$graphUserId}/drive/items/{$fileId}/workbook/tables/{$tableName}";
+            // ──────────────────────────────────────
+            // SELECT APPROPRIATE DRIVE PATH
+            // ──────────────────────────────────────
+            $graphUserId = $user->microsoft_graph_user_id ?? $user->microsoft_email;
 
-            Log::info("Requesting table data using fileId", ['base_url' => $baseUrl]);
+            if ($driveId) {
+                // SHARED OR OTHER DRIVE
+                $baseUrl = "https://graph.microsoft.com/v1.0/drives/{$driveId}/items/{$fileId}/workbook/tables/{$tableName}";
+            } else {
+                // USER'S PRIMARY DRIVE
+                $baseUrl = "https://graph.microsoft.com/v1.0/users/{$graphUserId}/drive/items/{$fileId}/workbook/tables/{$tableName}";
+            }
 
-            // Build a client with explicit headers (avoid relying only on withToken during pooling)
+            Log::info("Workbook base URL", ['url' => $baseUrl]);
+
+            // ──────────────────────────────────────
+            // FETCH EXCEL DATA (headers + rows)
+            // ──────────────────────────────────────
             $client = Http::withHeaders([
                 'Authorization' => "Bearer {$accessToken}",
-                'Accept' => 'application/json',
+                'Accept'        => 'application/json',
             ]);
 
-            // Try pooled requests first (faster)
             try {
                 $responses = Http::pool(fn($pool) => [
-                    $pool->as('headers')->withHeaders([
-                        'Authorization' => "Bearer {$accessToken}",
-                        'Accept' => 'application/json',
-                    ])->get("{$baseUrl}/headerRowRange"),
-
-                    $pool->as('data')->withHeaders([
-                        'Authorization' => "Bearer {$accessToken}",
-                        'Accept' => 'application/json',
-                    ])->get("{$baseUrl}/dataBodyRange"),
+                    $pool->as('headers')->withToken($accessToken)->get("{$baseUrl}/headerRowRange"),
+                    $pool->as('data')->withToken($accessToken)->get("{$baseUrl}/dataBodyRange")
                 ]);
-
             } catch (\Throwable $ex) {
-                // Pooling failed (network/Guzzle quirk) — log and fall back to sequential
-                Log::warning('Pooling failed, falling back to sequential requests', ['error' => $ex->getMessage()]);
                 $responses = null;
             }
 
-            // If pool returned null or failed, do sequential requests with detailed logs
-            if (! $responses) {
+            if (!$responses) {
                 $headersResp = $client->get("{$baseUrl}/headerRowRange");
                 $dataResp    = $client->get("{$baseUrl}/dataBodyRange");
 
-                Log::info('Sequential Excel requests headers', [
-                    'headers_status' => $headersResp->status(),
-                    'headers_body'   => substr($headersResp->body(), 0, 1000), // avoid massive logs
-                ]);
-                Log::info('Sequential Excel requests data', [
-                    'data_status' => $dataResp->status(),
-                    'data_body'   => substr($dataResp->body(), 0, 1000),
-                ]);
-
                 if ($headersResp->failed() || $dataResp->failed()) {
-                    Log::error('Failed to fetch Excel (sequential)', [
-                        'headers_status' => $headersResp->status(),
-                        'headers_body'   => $headersResp->body(),
-                        'data_status'    => $dataResp->status(),
-                        'data_body'      => $dataResp->body(),
-                    ]);
-                    return response()->json(['success' => false, 'error' => 'Failed to fetch Excel data (sequential)'], 500);
+                    return response()->json(['success' => false, 'error' => 'Failed to fetch Excel data'], 500);
                 }
 
                 $headers = $headersResp->json()['values'][0] ?? [];
                 $rows    = $dataResp->json()['values'] ?? [];
-
             } else {
-                // Pool returned a responses array keyed by 'headers' and 'data'
                 if ($responses['headers']->failed() || $responses['data']->failed()) {
-                    Log::error('Excel API failed (pool)', [
-                        'headers_status' => $responses['headers']->status(),
-                        'headers_body'   => $responses['headers']->body(),
-                        'data_status'    => $responses['data']->status(),
-                        'data_body'      => $responses['data']->body(),
-                    ]);
-                    return response()->json(['success' => false, 'error' => 'Failed to fetch Excel data (pool)'], 500);
+                    return response()->json(['success' => false, 'error' => 'Failed to fetch Excel data'], 500);
                 }
 
                 $headers = $responses['headers']->json()['values'][0] ?? [];
@@ -205,12 +207,12 @@ class OneDriveSheetController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Unhandled exception', [
-                'msg'  => $e->getMessage(),
-                'file' => $e->getFile(),
+                'msg' => $e->getMessage(),
                 'line' => $e->getLine(),
+                'file' => $e->getFile(),
             ]);
 
-            return response()->json(['success' => false, 'error' => 'Unexpected server error.'], 500);
+            return response()->json(['success' => false, 'error' => 'Unexpected server error'], 500);
         }
     }
 }
