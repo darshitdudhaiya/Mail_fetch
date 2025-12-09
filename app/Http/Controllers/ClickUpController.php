@@ -515,6 +515,10 @@ class ClickUpController extends Controller
                 'page_size'      => $perPage,     // Limit per page
             ];
 
+            if (! empty($assigneeId)) {
+                $queryParams['assignees[]'] = $assigneeId;
+            }
+
             // ✅ Fetch from ClickUp API
             $response = Http::withHeaders([
                 'Authorization' => $this->getTokenFromRequest($request),
@@ -810,6 +814,7 @@ class ClickUpController extends Controller
                     'Authorization' => $this->getTokenFromRequest($request),
                 ])->get("{$this->clickupBaseApi}/list/{$list['id']}/task", [
                     'archived'       => 'false',
+                    'subtasks' => 'true',
                     'include_closed' => 'true',
                 ]);
 
